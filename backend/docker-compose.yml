@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fishshop
+      POSTGRES_PASSWORD: fishshop
+      POSTGRES_DB: fishshop_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - fishshop_pg_data:/var/lib/postgresql/data
+
+  postgres_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fishshop
+      POSTGRES_PASSWORD: fishshop
+      POSTGRES_DB: fishshop_test
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+volumes:
+  fishshop_pg_data:

@@ -6,10 +6,18 @@ for in-home services; a rule-based "Build My Aquarium" recommender; and, as
 its centerpiece feature, the original interactive Three.js jellyfish reef
 this project started as.
 
-**This is a front-end prototype.** There's no backend, database, or payment
-processor — the cart and bookings persist to `localStorage` so the whole
-experience works end-to-end and survives a refresh, but nothing is actually
-charged or stored server-side. See "Known limitations" below.
+**The frontend below is still a self-contained prototype** — the cart and
+bookings persist to `localStorage` so the whole experience works end-to-end
+and survives a refresh, but it does not yet talk to a server. See "Known
+limitations" below.
+
+A real backend now exists alongside it in **`backend/`** — a FastAPI +
+PostgreSQL API covering accounts, the product catalog, multi-currency
+pricing, cart/orders, appointment booking, reviews, promotions, and admin
+management (see `specs/001-fish-shop-backend/`). Connecting this frontend to
+it is a separate, not-yet-done feature; see `backend/README.md` and
+[`specs/001-fish-shop-backend/quickstart.md`](specs/001-fish-shop-backend/quickstart.md)
+to run the backend on its own.
 
 ## Run it
 
@@ -37,6 +45,8 @@ npm run preview  # serve the production build locally
 
 ## What's inside
 
+- **`backend/`** — the FastAPI backend described above; not yet connected to
+  this frontend. See `backend/README.md`.
 - **`src/experience/`** — the original Three.js jellyfish scene (bell
   pulse-and-glide physics, vortex rings, tentacle sway, kelp, rays, a fish
   school sheltering in the tentacles, zooplankton capture, a sandy seafloor

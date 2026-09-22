@@ -3,113 +3,50 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import InsufficientStockError, NotFoundError, ValidationAppError
+from app.core.exceptions import AppError, NotFoundError
 from app.db.models.product import Inventory, Product, ProductStatus
-from app.services import notification_service
 
 
-async def _notify_low_stock(db: AsyncSession, product_id: uuid.UUID, *, commit: bool = False) -> None:
-    await notification_service.record_event(
-        db,
-        recipient_user_id=None,
-        event_type="low_stock_alert",
-        payload={"product_id": str(product_id)},
-        commit=commit,
-    )
+class InsufficientStockError(AppError):
+    status_code = 422
+    code = "INSUFFICIENT_STOCK"
 
 
-async def check_and_reserve_stock(db: AsyncSession, product_id: uuid.UUID, quantity: int) -> None:
-    """Lock the inventory row and decrement stock by `quantity`.
-
-    Must be called inside an active transaction. Row-level locking (research.md
-    §6) makes this safe under concurrent checkouts for the same product.
-    """
-    result = await db.execute(
-        select(Inventory).where(Inventory.product_id == product_id).with_for_update()
-    )
+async def lock_inventory_row(db: AsyncSession, product_id: uuid.UUID) -> Inventory:
+    result = await db.execute(select(Inventory).where(Inventory.product_id == product_id).with_for_update())
     inventory = result.scalar_one_or_none()
     if inventory is None:
-        raise NotFoundError("The requested product was not found.")
+        raise NotFoundError("Product inventory not found.")
+    return inventory
+
+
+async def check_and_reserve_stock(db: AsyncSession, product_id: uuid.UUID, quantity: int) -> bool:
+    """Locks the inventory row and decrements stock, raising if insufficient.
+    Caller is responsible for the surrounding transaction/commit. Returns
+    True if this decrement crossed the low-stock threshold — the caller
+    should fire a low-stock notification AFTER its own commit succeeds,
+    never from inside this still-open transaction."""
+    product_result = await db.execute(select(Product).where(Product.id == product_id))
+    product = product_result.scalar_one_or_none()
+    if product is None or product.status not in (ProductStatus.active, ProductStatus.out_of_stock):
+        raise NotFoundError("Product not found or not available.")
+
+    inventory = await lock_inventory_row(db, product_id)
     if inventory.stock_quantity < quantity:
-        raise InsufficientStockError("Insufficient stock for the requested quantity.")
+        raise InsufficientStockError(f"Only {inventory.stock_quantity} left in stock.")
 
     was_above_threshold = inventory.stock_quantity > inventory.low_stock_threshold
     inventory.stock_quantity -= quantity
-    now_at_or_below_threshold = inventory.stock_quantity <= inventory.low_stock_threshold
+    if inventory.stock_quantity == 0:
+        product.status = ProductStatus.out_of_stock
 
-    if inventory.stock_quantity <= 0:
-        product_result = await db.execute(select(Product).where(Product.id == product_id))
-        product = product_result.scalar_one_or_none()
-        if product is not None and product.status == ProductStatus.active:
-            product.status = ProductStatus.out_of_stock
-
-    if was_above_threshold and now_at_or_below_threshold:
-        await _notify_low_stock(db, product_id)
+    return was_above_threshold and inventory.stock_quantity <= inventory.low_stock_threshold
 
 
 async def restock(db: AsyncSession, product_id: uuid.UUID, quantity: int) -> None:
-    result = await db.execute(
-        select(Inventory).where(Inventory.product_id == product_id).with_for_update()
-    )
-    inventory = result.scalar_one_or_none()
-    if inventory is None:
-        raise NotFoundError("The requested product was not found.")
-    inventory.stock_quantity += quantity
-
-    if inventory.stock_quantity > 0:
-        product_result = await db.execute(select(Product).where(Product.id == product_id))
-        product = product_result.scalar_one_or_none()
-        if product is not None and product.status == ProductStatus.out_of_stock:
-            product.status = ProductStatus.active
-
-
-async def adjust_stock(
-    db: AsyncSession,
-    product_id: uuid.UUID,
-    *,
-    stock_quantity: int | None = None,
-    low_stock_threshold: int | None = None,
-    adjust_by: int | None = None,
-) -> dict:
-    result = await db.execute(
-        select(Inventory).where(Inventory.product_id == product_id).with_for_update()
-    )
-    inventory = result.scalar_one_or_none()
-    if inventory is None:
-        raise NotFoundError("The requested product was not found.")
-
-    was_above_threshold = inventory.stock_quantity > inventory.low_stock_threshold
-
-    if stock_quantity is not None:
-        inventory.stock_quantity = stock_quantity
-    if adjust_by is not None:
-        inventory.stock_quantity += adjust_by
-    if low_stock_threshold is not None:
-        inventory.low_stock_threshold = low_stock_threshold
-
-    if inventory.stock_quantity < 0:
-        raise ValidationAppError("Stock quantity cannot be negative.")
-
-    now_at_or_below_threshold = inventory.stock_quantity <= inventory.low_stock_threshold
-
     product_result = await db.execute(select(Product).where(Product.id == product_id))
     product = product_result.scalar_one_or_none()
-    if product is not None:
-        if inventory.stock_quantity <= 0 and product.status == ProductStatus.active:
-            product.status = ProductStatus.out_of_stock
-        elif inventory.stock_quantity > 0 and product.status == ProductStatus.out_of_stock:
-            product.status = ProductStatus.active
-
-    if was_above_threshold and now_at_or_below_threshold:
-        await _notify_low_stock(db, product_id, commit=False)
-
-    await db.commit()
-
-    is_low_stock = inventory.stock_quantity <= inventory.low_stock_threshold
-
-    return {
-        "stock_quantity": inventory.stock_quantity,
-        "low_stock_threshold": inventory.low_stock_threshold,
-        "status": product.status.value if product else None,
-        "is_low_stock": is_low_stock,
-    }
+    inventory = await lock_inventory_row(db, product_id)
+    inventory.stock_quantity += quantity
+    if product is not None and product.status == ProductStatus.out_of_stock and inventory.stock_quantity > 0:
+        product.status = ProductStatus.active

@@ -12,6 +12,8 @@ description: "Task list for Pet Fish Shop Backend API"
 
 **Organization**: Tasks are grouped by user story (from spec.md, P1→P3) to enable independent implementation and testing of each. All paths are under `backend/`, per plan.md's Project Structure — the existing root-level frontend is untouched; frontend integration is a future feature (plan.md, roadmap Phase 16) and its tasks (`Create frontend project structure`, `Connect frontend ... APIs`, etc., from the user's Phase 1/16 input) are intentionally not included here.
 
+**Re-run note**: This task list previously reached 140/140 complete (the backend was fully implemented and tested, and `002-frontend-integration` was built and verified against it). A `/sp.tasks` re-run was explicitly requested to redo the backend from scratch, discarding that implementation; all checkboxes below have been reset to `[ ]` accordingly. The task content itself is unchanged from the original run — spec.md/plan.md did not change, so the same 15-phase, 12-user-story breakdown still applies. A safety checkpoint of the pre-rebuild state was committed on `002-frontend-integration` at commit `84a7a46` before this reset.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)

@@ -13,9 +13,7 @@ router = APIRouter(prefix="/wishlist", tags=["wishlist"])
 
 
 @router.get("", response_model=list[WishlistProductResponse])
-async def list_wishlist_route(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[WishlistProductResponse]:
+async def list_wishlist_route(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[WishlistProductResponse]:
     return await wishlist_service.list_wishlist(db, user.id)
 
 

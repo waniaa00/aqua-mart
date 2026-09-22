@@ -10,4 +10,7 @@ router = APIRouter(prefix="/currency", tags=["currency"])
 
 @router.get("/rates", response_model=CurrencyRatesResponse)
 async def get_rates_route(db: AsyncSession = Depends(get_db)) -> CurrencyRatesResponse:
-    return await currency_service.get_rates(db)
+    rates, is_fallback = await currency_service.get_all_rates(db)
+    return CurrencyRatesResponse(
+        base_currency="USD", rates={k: str(v) for k, v in rates.items()}, is_fallback=is_fallback
+    )

@@ -19,16 +19,11 @@ async def list_reviews_route(product_id: str, db: AsyncSession = Depends(get_db)
 
 @router.post("/products/{product_id}/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
 async def create_review_route(
-    product_id: str,
-    data: CreateReviewRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    product_id: str, data: CreateReviewRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> ReviewResponse:
     return await review_service.create_review(db, user.id, uuid.UUID(product_id), data)
 
 
 @router.delete("/admin/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def moderate_review_route(
-    review_id: str, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
-) -> None:
+async def moderate_review_route(review_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> None:
     await review_service.moderate_review(db, uuid.UUID(review_id))

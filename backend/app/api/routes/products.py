@@ -9,15 +9,16 @@ from app.db.database import get_db
 from app.db.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.product import (
-    AddProductImageRequest,
-    AdjustInventoryRequest,
+    CreateProductImageRequest,
     CreateProductRequest,
+    InventoryResponse,
     ProductDetail,
     ProductImageResponse,
     ProductListItem,
+    UpdateInventoryRequest,
     UpdateProductRequest,
 )
-from app.services import inventory_service, product_service
+from app.services import product_service
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -34,10 +35,10 @@ async def list_products_route(
     freshwater_or_marine: str | None = None,
     difficulty: str | None = None,
     featured: bool | None = None,
-    sort: str = "newest",
-    page: int = Query(default=1, ge=1),
-    limit: int = Query(default=20, ge=1, le=100),
+    sort: str | None = None,
     currency: str | None = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ) -> PaginatedResponse[ProductListItem]:
@@ -55,9 +56,9 @@ async def list_products_route(
         difficulty=difficulty,
         featured=featured,
         sort=sort,
+        currency=effective_currency,
         page=page,
         limit=limit,
-        currency=effective_currency,
     )
 
 
@@ -74,30 +75,24 @@ async def get_product_route(
 
 @router.post("", response_model=ProductDetail, status_code=status.HTTP_201_CREATED)
 async def create_product_route(
-    data: CreateProductRequest,
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    data: CreateProductRequest, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
 ) -> ProductDetail:
-    product = await product_service.create_product(db, data)
-    return await product_service.get_product_by_slug(db, product.slug)
+    return await product_service.create_product(db, data)
 
 
 @router.patch("/{product_id}", response_model=ProductDetail)
 async def update_product_route(
     product_id: str,
     data: UpdateProductRequest,
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
 ) -> ProductDetail:
-    product = await product_service.update_product(db, uuid.UUID(product_id), data)
-    return await product_service.get_product_by_slug(db, product.slug)
+    return await product_service.update_product(db, uuid.UUID(product_id), data)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_product_route(
-    product_id: str,
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    product_id: str, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
 ) -> None:
     await product_service.archive_product(db, uuid.UUID(product_id))
 
@@ -105,25 +100,18 @@ async def archive_product_route(
 @router.post("/{product_id}/images", response_model=ProductImageResponse, status_code=status.HTTP_201_CREATED)
 async def add_product_image_route(
     product_id: str,
-    data: AddProductImageRequest,
+    data: CreateProductImageRequest,
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
 ) -> ProductImageResponse:
-    image = await product_service.add_product_image(db, uuid.UUID(product_id), data.url, data.display_order)
-    return ProductImageResponse(id=str(image.id), url=image.url, display_order=image.display_order)
+    return await product_service.add_product_image(db, uuid.UUID(product_id), data)
 
 
-@router.patch("/{product_id}/inventory")
-async def adjust_inventory_route(
+@router.patch("/{product_id}/inventory", response_model=InventoryResponse)
+async def update_inventory_route(
     product_id: str,
-    data: AdjustInventoryRequest,
+    data: UpdateInventoryRequest,
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
-) -> dict:
-    return await inventory_service.adjust_stock(
-        db,
-        uuid.UUID(product_id),
-        stock_quantity=data.stock_quantity,
-        low_stock_threshold=data.low_stock_threshold,
-        adjust_by=data.adjust_by,
-    )
+) -> InventoryResponse:
+    return await product_service.update_inventory(db, uuid.UUID(product_id), data)

@@ -14,37 +14,24 @@ router = APIRouter(prefix="/categories", tags=["categories"])
 
 @router.get("", response_model=list[CategoryResponse])
 async def list_categories_route(db: AsyncSession = Depends(get_db)) -> list[CategoryResponse]:
-    return await product_service.list_categories(db)
+    categories = await product_service.list_categories(db)
+    return [CategoryResponse.model_validate(c) for c in categories]
 
 
 @router.post("", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_category_route(
-    data: CreateCategoryRequest,
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    data: CreateCategoryRequest, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
 ) -> CategoryResponse:
     category = await product_service.create_category(db, data)
-    return CategoryResponse(
-        id=str(category.id),
-        name=category.name,
-        slug=category.slug,
-        parent_id=str(category.parent_id) if category.parent_id else None,
-        is_archived=category.is_archived,
-    )
+    return CategoryResponse.model_validate(category)
 
 
 @router.patch("/{category_id}", response_model=CategoryResponse)
 async def update_category_route(
     category_id: str,
     data: UpdateCategoryRequest,
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
 ) -> CategoryResponse:
     category = await product_service.update_category(db, uuid.UUID(category_id), data)
-    return CategoryResponse(
-        id=str(category.id),
-        name=category.name,
-        slug=category.slug,
-        parent_id=str(category.parent_id) if category.parent_id else None,
-        is_archived=category.is_archived,
-    )
+    return CategoryResponse.model_validate(category)

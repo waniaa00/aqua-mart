@@ -1,43 +1,26 @@
-import math
-from collections.abc import Sequence
-from typing import TypeVar
+from dataclasses import dataclass
 
-from sqlalchemy import Select, func
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.schemas.common import PaginatedResponse
-
-T = TypeVar("T")
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
 
 
-async def paginate(
-    db: AsyncSession,
-    query: Select,
-    *,
-    page: int = 1,
-    limit: int = 20,
-    schema_cls,
-) -> PaginatedResponse:
-    page = max(page, 1)
-    limit = max(min(limit, 100), 1)
+@dataclass
+class PageParams:
+    page: int
+    limit: int
 
-    total_items_result = await db.execute(select_count(query))
-    total_items = total_items_result.scalar_one()
-
-    paged_query = query.offset((page - 1) * limit).limit(limit)
-    rows_result = await db.execute(paged_query)
-    rows: Sequence = rows_result.scalars().all()
-
-    total_pages = max(math.ceil(total_items / limit), 1) if total_items else 0
-
-    return PaginatedResponse(
-        items=[schema_cls.model_validate(row) for row in rows],
-        page=page,
-        limit=limit,
-        total_items=total_items,
-        total_pages=total_pages,
-    )
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.limit
 
 
-def select_count(query: Select):
-    return query.with_only_columns(func.count()).order_by(None)
+def clean_page_params(page: int = 1, limit: int = DEFAULT_LIMIT) -> PageParams:
+    page = max(1, page)
+    limit = max(1, min(limit, MAX_LIMIT))
+    return PageParams(page=page, limit=limit)
+
+
+def total_pages(total_items: int, limit: int) -> int:
+    if total_items == 0:
+        return 1
+    return (total_items + limit - 1) // limit

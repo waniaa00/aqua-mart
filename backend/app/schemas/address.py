@@ -1,16 +1,14 @@
-from pydantic import Field
-
 from app.schemas.common import ORMModel
 
 
 class AddressRequest(ORMModel):
-    full_name: str = Field(min_length=1, max_length=255)
-    phone: str = Field(min_length=1, max_length=50)
-    address_line: str = Field(min_length=1, max_length=500)
-    city: str = Field(min_length=1, max_length=255)
+    full_name: str
+    phone: str
+    address_line: str
+    city: str
     state_province: str | None = None
-    postal_code: str = Field(min_length=1, max_length=50)
-    country: str = Field(min_length=1, max_length=100)
+    postal_code: str
+    country: str
     delivery_instructions: str | None = None
     is_default: bool = False
 
@@ -24,6 +22,7 @@ class UpdateAddressRequest(ORMModel):
     postal_code: str | None = None
     country: str | None = None
     delivery_instructions: str | None = None
+    is_default: bool | None = None
 
 
 class AddressResponse(ORMModel):

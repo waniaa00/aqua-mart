@@ -1,70 +1,42 @@
-import logging
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger("app")
-
 
 class AppError(Exception):
-    """Base class for all application errors that map to a structured API response."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "ERROR"
 
-    status_code = 400
-    code = "APP_ERROR"
-
-    def __init__(self, message: str, *, code: str | None = None, status_code: int | None = None):
+    def __init__(self, message: str, code: str | None = None):
         super().__init__(message)
         self.message = message
-        if code is not None:
+        if code:
             self.code = code
-        if status_code is not None:
-            self.status_code = status_code
-
-
-class ValidationAppError(AppError):
-    status_code = 400
-    code = "VALIDATION_ERROR"
-
-
-class UnauthenticatedError(AppError):
-    status_code = 401
-    code = "UNAUTHENTICATED"
-
-
-class ForbiddenError(AppError):
-    status_code = 403
-    code = "FORBIDDEN"
 
 
 class NotFoundError(AppError):
-    status_code = 404
+    status_code = status.HTTP_404_NOT_FOUND
     code = "NOT_FOUND"
 
 
+class ValidationAppError(AppError):
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "VALIDATION_ERROR"
+
+
+class ForbiddenError(AppError):
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "FORBIDDEN"
+
+
+class UnauthenticatedError(AppError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "UNAUTHENTICATED"
+
+
 class ConflictError(AppError):
-    status_code = 409
+    status_code = status.HTTP_409_CONFLICT
     code = "CONFLICT"
-
-
-class InsufficientStockError(AppError):
-    status_code = 422
-    code = "INSUFFICIENT_STOCK"
-
-
-class SlotUnavailableError(AppError):
-    status_code = 422
-    code = "SLOT_UNAVAILABLE"
-
-
-class InvalidCurrencyError(AppError):
-    status_code = 400
-    code = "INVALID_CURRENCY"
-
-
-class ExternalServiceError(AppError):
-    status_code = 502
-    code = "EXTERNAL_SERVICE_ERROR"
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -73,14 +45,14 @@ def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
-    async def handle_app_error(request: Request, exc: AppError):
+    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         return _error_response(exc.status_code, exc.code, exc.message)
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(request: Request, exc: RequestValidationError):
-        return _error_response(400, "VALIDATION_ERROR", "The request failed validation.")
+    async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        return _error_response(status.HTTP_400_BAD_REQUEST, "VALIDATION_ERROR", "Invalid request data.")
 
     @app.exception_handler(Exception)
-    async def handle_unexpected_error(request: Request, exc: Exception):
-        logger.exception("Unhandled exception while processing %s %s", request.method, request.url)
-        return _error_response(500, "INTERNAL_ERROR", "An unexpected error occurred.")
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        # Never leak internals (stack traces, exception text) in the response body.
+        return _error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.")

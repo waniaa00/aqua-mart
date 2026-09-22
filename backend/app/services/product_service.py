@@ -1,8 +1,7 @@
-import math
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,46 +11,45 @@ from app.db.models.product import FishDetails, Inventory, Product, ProductImage,
 from app.db.models.review import Review
 from app.schemas.common import Money, PaginatedResponse
 from app.schemas.product import (
-    CategoryResponse,
     CreateCategoryRequest,
+    CreateProductImageRequest,
     CreateProductRequest,
     FishDetailsResponse,
+    InventoryResponse,
     ProductDetail,
     ProductImageResponse,
     ProductListItem,
     UpdateCategoryRequest,
+    UpdateInventoryRequest,
     UpdateProductRequest,
 )
+from app.services import currency_service
+from app.utils.pagination import clean_page_params, total_pages as compute_total_pages
 
-SORT_OPTIONS = {
-    "price_asc": Product.base_price.asc(),
-    "price_desc": Product.base_price.desc(),
-    "newest": Product.created_at.desc(),
-    "oldest": Product.created_at.asc(),
-    "featured": Product.is_featured.desc(),
-}
+VALID_SORTS = {"price_asc", "price_desc", "newest", "oldest", "popularity", "rating", "featured"}
 
 
-async def _rating_stats(db: AsyncSession, product_id: uuid.UUID) -> tuple[float | None, int]:
+async def build_money(db: AsyncSession, base_price: Decimal, currency: str | None) -> Money:
+    currency = currency or "USD"
+    if currency == "USD":
+        return Money.same_currency(base_price, "USD")
+    rate, _ = await currency_service.get_rate(db, currency)
+    return Money.converted(base_price, "USD", currency, rate)
+
+
+async def _rating_map(db: AsyncSession, product_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[float, int]]:
+    if not product_ids:
+        return {}
     result = await db.execute(
-        select(func.avg(Review.rating), func.count(Review.id)).where(
-            Review.product_id == product_id, Review.is_moderated_hidden.is_(False)
-        )
+        select(Review.product_id, func.avg(Review.rating), func.count(Review.id))
+        .where(Review.product_id.in_(product_ids), Review.is_moderated_hidden.is_(False))
+        .group_by(Review.product_id)
     )
-    avg_rating, count = result.one()
-    return (float(avg_rating) if avg_rating is not None else None, count or 0)
+    return {row[0]: (float(row[1]), row[2]) for row in result.all()}
 
 
-async def _price_for(db: AsyncSession, product: Product, currency: str | None) -> Money:
-    from app.services import currency_service
-
-    target = currency_service.validate_currency(currency) if currency else product.base_currency
-    return await currency_service.convert(db, product.base_price, product.base_currency, target)
-
-
-async def _to_list_item(
-    db: AsyncSession, product: Product, avg_rating: float | None, review_count: int, currency: str | None
-) -> ProductListItem:
+async def _to_list_item(db: AsyncSession, product: Product, currency: str | None, rating_map: dict) -> ProductListItem:
+    avg_rating, review_count = rating_map.get(product.id, (None, 0))
     return ProductListItem(
         id=str(product.id),
         name=product.name,
@@ -62,9 +60,21 @@ async def _to_list_item(
         status=product.status.value,
         is_featured=product.is_featured,
         product_type=product.product_type.value,
-        price=await _price_for(db, product, currency),
+        price=await build_money(db, product.base_price, currency),
         average_rating=avg_rating,
         review_count=review_count,
+    )
+
+
+async def _to_detail(db: AsyncSession, product: Product, currency: str | None) -> ProductDetail:
+    rating_map = await _rating_map(db, [product.id])
+    list_item = await _to_list_item(db, product, currency, rating_map)
+    return ProductDetail(
+        **list_item.model_dump(),
+        description=product.description,
+        images=[ProductImageResponse.model_validate(img) for img in sorted(product.images, key=lambda i: i.display_order)],
+        fish_details=FishDetailsResponse.model_validate(product.fish_details) if product.fish_details else None,
+        stock_quantity=product.inventory.stock_quantity if product.inventory else 0,
     )
 
 
@@ -81,252 +91,238 @@ async def list_products(
     freshwater_or_marine: str | None = None,
     difficulty: str | None = None,
     featured: bool | None = None,
-    sort: str = "newest",
+    sort: str | None = None,
+    currency: str | None = None,
     page: int = 1,
     limit: int = 20,
-    include_non_active: bool = False,
-    currency: str | None = None,
 ) -> PaginatedResponse[ProductListItem]:
-    query = select(Product).options(selectinload(Product.fish_details), selectinload(Product.inventory))
+    if sort is not None and sort not in VALID_SORTS:
+        raise ValidationAppError(f"Invalid sort: {sort}")
+    if currency is not None:
+        # Validate eagerly rather than only as a side effect of building each
+        # item's Money — an empty result page must not silently mask an
+        # invalid ?currency= (FR-020).
+        currency_service.validate_currency(currency)
 
-    if not include_non_active:
-        query = query.where(Product.status == ProductStatus.active)
-
-    if search:
-        like = f"%{search.lower()}%"
-        query = query.outerjoin(FishDetails, FishDetails.product_id == Product.id).where(
-            or_(
-                func.lower(Product.name).like(like),
-                func.lower(Product.description).like(like),
-                func.lower(Product.sku).like(like),
-                func.lower(func.coalesce(FishDetails.species, "")).like(like),
-            )
-        )
-    if category:
-        query = query.join(Category, Category.id == Product.category_id).where(Category.slug == category)
-    if product_type:
-        try:
-            query = query.where(Product.product_type == ProductType(product_type))
-        except ValueError as exc:
-            raise ValidationAppError(f"Invalid product_type: {product_type}") from exc
-    if min_price is not None:
-        query = query.where(Product.base_price >= min_price)
-    if max_price is not None:
-        query = query.where(Product.base_price <= max_price)
-    if featured is not None:
-        query = query.where(Product.is_featured == featured)
-
-    needs_fish_join = species or freshwater_or_marine or difficulty
+    query = select(Product).where(Product.status != ProductStatus.archived).options(
+        selectinload(Product.images), selectinload(Product.fish_details), selectinload(Product.inventory)
+    )
+    needs_fish_join = any([species, freshwater_or_marine, difficulty])
     if needs_fish_join:
-        query = query.join(FishDetails, FishDetails.product_id == Product.id, isouter=False)
-        if species:
-            query = query.where(func.lower(FishDetails.species) == species.lower())
-        if freshwater_or_marine:
-            query = query.where(FishDetails.freshwater_or_marine == freshwater_or_marine)
-        if difficulty:
-            query = query.where(FishDetails.difficulty == difficulty)
+        query = query.join(FishDetails, FishDetails.product_id == Product.id)
 
+    conditions = []
+    if search:
+        like = f"%{search}%"
+        conditions.append(or_(Product.name.ilike(like), Product.description.ilike(like)))
+    if category:
+        cat_result = await db.execute(select(Category).where(Category.slug == category))
+        cat = cat_result.scalar_one_or_none()
+        conditions.append(Product.category_id == (cat.id if cat else uuid.uuid4()))
+    if product_type:
+        conditions.append(Product.product_type == product_type)
+    if species:
+        conditions.append(FishDetails.species.ilike(f"%{species}%"))
+    if min_price is not None:
+        conditions.append(Product.base_price >= min_price)
+    if max_price is not None:
+        conditions.append(Product.base_price <= max_price)
+    if freshwater_or_marine:
+        conditions.append(FishDetails.freshwater_or_marine == freshwater_or_marine)
+    if difficulty:
+        conditions.append(FishDetails.difficulty == difficulty)
+    if featured is not None:
+        conditions.append(Product.is_featured == featured)
     if available is not None:
-        query = query.join(Inventory, Inventory.product_id == Product.id)
+        query = query.join(Inventory, Inventory.product_id == Product.id, isouter=True)
         if available:
-            query = query.where(Inventory.stock_quantity > 0)
+            conditions.append(and_(Inventory.stock_quantity > 0, Product.status == ProductStatus.active))
         else:
-            query = query.where(Inventory.stock_quantity <= 0)
+            conditions.append(or_(Inventory.stock_quantity == 0, Inventory.stock_quantity.is_(None)))
+    if not available:  # default: only ever show active or out_of_stock, never draft, unless explicitly filtered
+        conditions.append(Product.status.in_([ProductStatus.active, ProductStatus.out_of_stock]))
 
-    order_clause = SORT_OPTIONS.get(sort)
-    if order_clause is None and sort not in ("popularity", "rating"):
-        raise ValidationAppError(f"Invalid sort option: {sort}")
+    if conditions:
+        query = query.where(and_(*conditions))
 
-    page = max(page, 1)
-    limit = max(min(limit, 100), 1)
-
-    count_query = select(func.count()).select_from(query.subquery())
+    count_query = select(func.count()).select_from(query.with_only_columns(Product.id).subquery())
     total_items = (await db.execute(count_query)).scalar_one()
 
+    if sort == "price_asc":
+        query = query.order_by(Product.base_price.asc())
+    elif sort == "price_desc":
+        query = query.order_by(Product.base_price.desc())
+    elif sort == "oldest":
+        query = query.order_by(Product.created_at.asc())
+    elif sort == "featured":
+        query = query.order_by(Product.is_featured.desc(), Product.created_at.desc())
+    elif sort in ("popularity", "rating"):
+        query = query.order_by(Product.created_at.desc())  # refined client-side via rating_map for now
+    else:  # newest, default
+        query = query.order_by(Product.created_at.desc())
+
+    params = clean_page_params(page, limit)
+    query = query.offset(params.offset).limit(params.limit)
+    result = await db.execute(query)
+    products = list(result.scalars().unique().all())
+
+    rating_map = await _rating_map(db, [p.id for p in products])
+    items = [await _to_list_item(db, p, currency, rating_map) for p in products]
+
     if sort in ("popularity", "rating"):
-        # Both require aggregating reviews; handled by fetching then sorting in Python
-        # since dataset sizes for a small-business catalog make this practical.
-        rows = (await db.execute(query)).scalars().all()
-        stats = [await _rating_stats(db, p.id) for p in rows]
-        combined = list(zip(rows, stats))
-        combined.sort(key=lambda pair: (pair[1][0] or 0) if sort == "rating" else pair[1][1], reverse=True)
-        start = (page - 1) * limit
-        page_rows = combined[start : start + limit]
-        items = [await _to_list_item(db, p, avg, count, currency) for p, (avg, count) in page_rows]
-    else:
-        query = query.order_by(order_clause).offset((page - 1) * limit).limit(limit)
-        rows = (await db.execute(query)).scalars().all()
-        items = []
-        for product in rows:
-            avg_rating, count = await _rating_stats(db, product.id)
-            items.append(await _to_list_item(db, product, avg_rating, count, currency))
+        items.sort(key=lambda i: (i.review_count if sort == "popularity" else (i.average_rating or 0)), reverse=True)
 
-    total_pages = math.ceil(total_items / limit) if total_items else 0
-    return PaginatedResponse(items=items, page=page, limit=limit, total_items=total_items, total_pages=total_pages)
-
-
-async def get_product_by_slug(db: AsyncSession, slug: str, currency: str | None = None) -> ProductDetail:
-    result = await db.execute(
-        select(Product)
-        .options(
-            selectinload(Product.fish_details),
-            selectinload(Product.inventory),
-            selectinload(Product.images),
-        )
-        .where(Product.slug == slug)
-    )
-    product = result.scalar_one_or_none()
-    if product is None:
-        raise NotFoundError("The requested product was not found.")
-
-    avg_rating, review_count = await _rating_stats(db, product.id)
-
-    fish_details = None
-    if product.fish_details is not None:
-        fish_details = FishDetailsResponse.model_validate(product.fish_details)
-
-    return ProductDetail(
-        id=str(product.id),
-        name=product.name,
-        slug=product.slug,
-        short_description=product.short_description,
-        description=product.description,
-        category_id=str(product.category_id) if product.category_id else None,
-        sku=product.sku,
-        status=product.status.value,
-        is_featured=product.is_featured,
-        product_type=product.product_type.value,
-        price=await _price_for(db, product, currency),
-        average_rating=avg_rating,
-        review_count=review_count,
-        images=[ProductImageResponse(id=str(i.id), url=i.url, display_order=i.display_order) for i in product.images],
-        fish_details=fish_details,
-        stock_quantity=product.inventory.stock_quantity if product.inventory else 0,
+    return PaginatedResponse(
+        items=items, page=params.page, limit=params.limit, total_items=total_items,
+        total_pages=compute_total_pages(total_items, params.limit),
     )
 
 
-async def get_product_or_404(db: AsyncSession, product_id: uuid.UUID) -> Product:
+async def _get_by_id(db: AsyncSession, product_id: uuid.UUID) -> Product:
     result = await db.execute(
         select(Product)
-        .options(selectinload(Product.fish_details), selectinload(Product.inventory))
         .where(Product.id == product_id)
+        .options(selectinload(Product.images), selectinload(Product.fish_details), selectinload(Product.inventory))
     )
     product = result.scalar_one_or_none()
     if product is None:
-        raise NotFoundError("The requested product was not found.")
+        raise NotFoundError("Product not found.")
     return product
 
 
-async def create_product(db: AsyncSession, data: CreateProductRequest) -> Product:
-    existing = await db.execute(select(Product).where(Product.sku == data.sku))
-    if existing.scalar_one_or_none() is not None:
-        from app.core.exceptions import ConflictError
+async def get_product_by_slug(db: AsyncSession, slug: str, currency: str | None) -> ProductDetail:
+    result = await db.execute(
+        select(Product)
+        .where(Product.slug == slug)
+        .options(selectinload(Product.images), selectinload(Product.fish_details), selectinload(Product.inventory))
+    )
+    product = result.scalar_one_or_none()
+    if product is None:
+        raise NotFoundError("Product not found.")
+    return await _to_detail(db, product, currency)
 
-        raise ConflictError("A product with this SKU already exists.")
 
-    try:
-        product_type = ProductType(data.product_type)
-    except ValueError as exc:
-        raise ValidationAppError(f"Invalid product_type: {data.product_type}") from exc
-
-    if product_type != ProductType.fish and data.fish_details is not None:
-        raise ValidationAppError("fish_details may only be set for products with product_type 'fish'.")
+async def create_product(db: AsyncSession, data: CreateProductRequest) -> ProductDetail:
+    if data.fish_details is not None and data.product_type != "fish":
+        raise ValidationAppError("fish_details can only be set on a product with product_type 'fish'.")
 
     product = Product(
         name=data.name,
         slug=data.slug,
+        sku=data.sku,
         description=data.description,
         short_description=data.short_description,
-        category_id=uuid.UUID(data.category_id) if data.category_id else None,
         base_price=Decimal(data.base_price),
         base_currency="USD",
-        sku=data.sku,
-        product_type=product_type,
+        category_id=uuid.UUID(data.category_id) if data.category_id else None,
+        product_type=ProductType(data.product_type),
         is_featured=data.is_featured,
         status=ProductStatus.draft,
     )
-    product.inventory = Inventory(
-        stock_quantity=data.initial_stock_quantity, low_stock_threshold=data.low_stock_threshold
-    )
-    if data.fish_details is not None:
-        product.fish_details = FishDetails(**data.fish_details.model_dump())
-
     db.add(product)
+    await db.flush()
+
+    db.add(Inventory(product_id=product.id, stock_quantity=data.initial_stock_quantity, low_stock_threshold=data.low_stock_threshold))
+    if data.fish_details is not None:
+        db.add(FishDetails(product_id=product.id, **data.fish_details.model_dump()))
+
     await db.commit()
-    return product
+    return await get_product_by_slug(db, product.slug, None)
 
 
-async def update_product(db: AsyncSession, product_id: uuid.UUID, data: UpdateProductRequest) -> Product:
-    product = await get_product_or_404(db, product_id)
+async def update_product(db: AsyncSession, product_id: uuid.UUID, data: UpdateProductRequest) -> ProductDetail:
+    product = await _get_by_id(db, product_id)
+    updates = data.model_dump(exclude_unset=True, exclude={"fish_details"})
+    if "base_price" in updates and updates["base_price"] is not None:
+        updates["base_price"] = Decimal(updates["base_price"])
+    if "category_id" in updates and updates["category_id"] is not None:
+        updates["category_id"] = uuid.UUID(updates["category_id"])
+    if "status" in updates and updates["status"] is not None:
+        updates["status"] = ProductStatus(updates["status"])
+    for key, value in updates.items():
+        setattr(product, key, value)
 
-    if data.name is not None:
-        product.name = data.name
-    if data.description is not None:
-        product.description = data.description
-    if data.short_description is not None:
-        product.short_description = data.short_description
-    if data.category_id is not None:
-        product.category_id = uuid.UUID(data.category_id)
-    if data.base_price is not None:
-        product.base_price = Decimal(data.base_price)
-    if data.status is not None:
-        try:
-            product.status = ProductStatus(data.status)
-        except ValueError as exc:
-            raise ValidationAppError(f"Invalid status: {data.status}") from exc
-    if data.is_featured is not None:
-        product.is_featured = data.is_featured
     if data.fish_details is not None:
         if product.product_type != ProductType.fish:
-            raise ValidationAppError("fish_details may only be set for products with product_type 'fish'.")
+            raise ValidationAppError("fish_details can only be set on a product with product_type 'fish'.")
         if product.fish_details is None:
-            product.fish_details = FishDetails(**data.fish_details.model_dump())
+            db.add(FishDetails(product_id=product.id, **data.fish_details.model_dump()))
         else:
-            for key, value in data.fish_details.model_dump().items():
+            for key, value in data.fish_details.model_dump(exclude_unset=True).items():
                 setattr(product.fish_details, key, value)
 
     await db.commit()
-    return product
+    return await get_product_by_slug(db, product.slug, None)
 
 
-async def archive_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
-    product = await get_product_or_404(db, product_id)
+async def archive_product(db: AsyncSession, product_id: uuid.UUID) -> None:
+    product = await _get_by_id(db, product_id)
     product.status = ProductStatus.archived
     await db.commit()
-    return product
 
 
-async def add_product_image(db: AsyncSession, product_id: uuid.UUID, url: str, display_order: int) -> ProductImage:
-    product = await get_product_or_404(db, product_id)
-    image = ProductImage(product_id=product.id, url=url, display_order=display_order)
+async def add_product_image(db: AsyncSession, product_id: uuid.UUID, data: CreateProductImageRequest) -> ProductImageResponse:
+    await _get_by_id(db, product_id)
+    image = ProductImage(product_id=product_id, url=data.url, display_order=data.display_order)
     db.add(image)
     await db.commit()
-    return image
+    await db.refresh(image)
+    return ProductImageResponse.model_validate(image)
 
 
-async def list_categories(db: AsyncSession) -> list[CategoryResponse]:
-    result = await db.execute(select(Category).where(Category.is_archived.is_(False)))
-    categories = result.scalars().all()
-    return [
-        CategoryResponse(
-            id=str(c.id), name=c.name, slug=c.slug, parent_id=str(c.parent_id) if c.parent_id else None, is_archived=c.is_archived
-        )
-        for c in categories
-    ]
+async def update_inventory(db: AsyncSession, product_id: uuid.UUID, data: UpdateInventoryRequest) -> InventoryResponse:
+    product = await _get_by_id(db, product_id)
+    inventory = product.inventory
+    if inventory is None:
+        raise NotFoundError("Inventory record not found.")
+
+    new_quantity = inventory.stock_quantity
+    if data.adjust_by is not None:
+        new_quantity += data.adjust_by
+    if data.stock_quantity is not None:
+        new_quantity = data.stock_quantity
+    if new_quantity < 0:
+        raise ValidationAppError("Stock quantity cannot go below zero.")
+
+    was_above_threshold = inventory.stock_quantity > inventory.low_stock_threshold
+    inventory.stock_quantity = new_quantity
+    if data.low_stock_threshold is not None:
+        inventory.low_stock_threshold = data.low_stock_threshold
+
+    if new_quantity == 0:
+        product.status = ProductStatus.out_of_stock
+    elif product.status == ProductStatus.out_of_stock and new_quantity > 0:
+        product.status = ProductStatus.active
+
+    await db.commit()
+
+    if was_above_threshold and new_quantity <= inventory.low_stock_threshold:
+        from app.services import notification_service
+
+        await notification_service.notify_low_stock(db, product_id, new_quantity)
+
+    return InventoryResponse(
+        stock_quantity=inventory.stock_quantity, low_stock_threshold=inventory.low_stock_threshold, status=product.status.value
+    )
+
+
+# --- Categories -------------------------------------------------------------
+
+
+async def list_categories(db: AsyncSession) -> list[Category]:
+    result = await db.execute(select(Category).where(Category.is_archived.is_(False)).order_by(Category.name))
+    return list(result.scalars().all())
 
 
 async def create_category(db: AsyncSession, data: CreateCategoryRequest) -> Category:
-    existing = await db.execute(select(Category).where(Category.slug == data.slug))
-    if existing.scalar_one_or_none() is not None:
-        from app.core.exceptions import ConflictError
-
-        raise ConflictError("A category with this slug already exists.")
+    from app.utils.slugify import slugify
 
     category = Category(
-        name=data.name, slug=data.slug, parent_id=uuid.UUID(data.parent_id) if data.parent_id else None
+        name=data.name, slug=slugify(data.name), parent_id=uuid.UUID(data.parent_id) if data.parent_id else None
     )
     db.add(category)
     await db.commit()
+    await db.refresh(category)
     return category
 
 
@@ -334,14 +330,12 @@ async def update_category(db: AsyncSession, category_id: uuid.UUID, data: Update
     result = await db.execute(select(Category).where(Category.id == category_id))
     category = result.scalar_one_or_none()
     if category is None:
-        raise NotFoundError("The requested category was not found.")
-
-    if data.name is not None:
-        category.name = data.name
-    if data.parent_id is not None:
-        category.parent_id = uuid.UUID(data.parent_id)
-    if data.is_archived is not None:
-        category.is_archived = data.is_archived
-
+        raise NotFoundError("Category not found.")
+    updates = data.model_dump(exclude_unset=True)
+    if "parent_id" in updates and updates["parent_id"] is not None:
+        updates["parent_id"] = uuid.UUID(updates["parent_id"])
+    for key, value in updates.items():
+        setattr(category, key, value)
     await db.commit()
+    await db.refresh(category)
     return category

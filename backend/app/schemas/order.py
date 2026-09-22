@@ -8,6 +8,7 @@ class CreateOrderRequest(ORMModel):
 
 
 class OrderItemResponse(ORMModel):
+    id: str
     product_id: str
     product_name: str
     quantity: int

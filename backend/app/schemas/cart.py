@@ -1,15 +1,13 @@
-from pydantic import Field
-
 from app.schemas.common import Money, ORMModel
 
 
 class CartItemRequest(ORMModel):
     product_id: str
-    quantity: int = Field(gt=0)
+    quantity: int
 
 
 class UpdateCartItemRequest(ORMModel):
-    quantity: int = Field(gt=0)
+    quantity: int
 
 
 class CartItemResponse(ORMModel):
@@ -26,4 +24,8 @@ class CartResponse(ORMModel):
     discount_amount: Money
     total: Money
     currency: str
-    coupon_code: str | None = None
+    coupon_code: str | None
+
+
+class ApplyCouponRequest(ORMModel):
+    code: str

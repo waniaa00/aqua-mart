@@ -42,23 +42,18 @@ async def create_review(db: AsyncSession, user_id: uuid.UUID, product_id: uuid.U
     if existing.scalar_one_or_none() is not None:
         raise ConflictError("You have already reviewed this purchase.")
 
-    review = Review(
-        user_id=user_id,
-        product_id=product_id,
-        order_item_id=order_item_id,
-        rating=data.rating,
-        review_text=data.review_text,
-    )
+    review = Review(user_id=user_id, product_id=product_id, order_item_id=order_item_id, rating=data.rating, review_text=data.review_text)
     db.add(review)
     await db.commit()
+    await db.refresh(review)
     return _to_response(review)
 
 
-async def list_reviews_for_product(db: AsyncSession, product_id: uuid.UUID, *, include_hidden: bool = False) -> list[ReviewResponse]:
+async def list_reviews_for_product(db: AsyncSession, product_id: uuid.UUID, include_hidden: bool = False) -> list[ReviewResponse]:
     query = select(Review).where(Review.product_id == product_id)
     if not include_hidden:
         query = query.where(Review.is_moderated_hidden.is_(False))
-    result = await db.execute(query)
+    result = await db.execute(query.order_by(Review.created_at.desc()))
     return [_to_response(r) for r in result.scalars().all()]
 
 
@@ -66,6 +61,6 @@ async def moderate_review(db: AsyncSession, review_id: uuid.UUID) -> None:
     result = await db.execute(select(Review).where(Review.id == review_id))
     review = result.scalar_one_or_none()
     if review is None:
-        raise NotFoundError("The requested review was not found.")
+        raise NotFoundError("Review not found.")
     review.is_moderated_hidden = True
     await db.commit()

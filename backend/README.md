@@ -8,10 +8,11 @@ data model, and API contracts this implements.
 
 ```bash
 uv sync
-cp .env.example .env   # then fill in real values (or use docker-compose for local dev)
-docker compose up -d   # starts local dev + test Postgres containers
+cp .env.example .env   # fill in your Neon DATABASE_URL and a JWT SECRET_KEY
 uv run alembic upgrade head
 ```
+
+`DATABASE_URL` points at a Neon Postgres branch (`postgresql+asyncpg://...?ssl=require`).
 
 ## Run
 
@@ -28,9 +29,10 @@ uv run uvicorn app.main:app --reload --port 8000
 uv run pytest
 ```
 
-Tests run against the `postgres_test` service in `docker-compose.yml`
-(`DATABASE_URL` override via `TEST_DATABASE_URL`, see `tests/conftest.py`),
-per this feature's research.md §3 (real Postgres, not SQLite).
+Tests run against a dedicated Neon branch (hardcoded in `tests/conftest.py`'s
+`TEST_DATABASE_URL` — never the dev/production database), per this feature's
+research.md §3 (real Postgres, not SQLite). Each test session drops and
+recreates the full schema.
 
 ## Migrations
 

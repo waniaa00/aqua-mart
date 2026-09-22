@@ -14,31 +14,31 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/me", response_model=UserProfileResponse)
-async def read_profile(user: User = Depends(get_current_user)) -> UserProfileResponse:
-    return await auth_service.get_profile(user)
+async def get_me_route(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> UserProfileResponse:
+    return await auth_service.get_profile(db, user)
 
 
 @router.patch("/me", response_model=UserProfileResponse)
-async def update_profile_route(
-    data: UpdateProfileRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def update_me_route(
+    data: UpdateProfileRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> UserProfileResponse:
-    return await auth_service.update_profile(db, user, data)
+    return await auth_service.update_profile(db, user, data.name, data.preferred_currency)
 
 
 @router.get("/me/addresses", response_model=list[AddressResponse])
 async def list_addresses_route(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[AddressResponse]:
-    return await address_service.list_addresses(db, user.id)
+    addresses = await address_service.list_addresses(db, user.id)
+    return [AddressResponse.model_validate(a) for a in addresses]
 
 
 @router.post("/me/addresses", response_model=AddressResponse, status_code=status.HTTP_201_CREATED)
 async def create_address_route(
     data: AddressRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> AddressResponse:
-    return await address_service.create_address(db, user.id, data)
+    address = await address_service.create_address(db, user.id, data)
+    return AddressResponse.model_validate(address)
 
 
 @router.patch("/me/addresses/{address_id}", response_model=AddressResponse)
@@ -48,7 +48,8 @@ async def update_address_route(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AddressResponse:
-    return await address_service.update_address(db, user.id, uuid.UUID(address_id), data)
+    address = await address_service.update_address(db, user.id, uuid.UUID(address_id), data)
+    return AddressResponse.model_validate(address)
 
 
 @router.delete("/me/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -62,4 +63,5 @@ async def delete_address_route(
 async def set_default_address_route(
     address_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> AddressResponse:
-    return await address_service.set_default(db, user.id, uuid.UUID(address_id))
+    address = await address_service.set_default_address(db, user.id, uuid.UUID(address_id))
+    return AddressResponse.model_validate(address)

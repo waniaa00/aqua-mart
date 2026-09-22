@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
+from app.db.models.mixins import UUIDPrimaryKeyMixin
 
 
 class NotificationEventType(str, enum.Enum):
@@ -17,15 +18,14 @@ class NotificationEventType(str, enum.Enum):
     low_stock_alert = "low_stock_alert"
 
 
-class Notification(Base):
+class Notification(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "notifications"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     recipient_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
     event_type: Mapped[NotificationEventType] = mapped_column(
-        Enum(NotificationEventType, name="notification_event_type"), nullable=False, index=True
+        Enum(NotificationEventType, name="notification_event_type"), nullable=False
     )
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

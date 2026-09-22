@@ -11,7 +11,5 @@ router = APIRouter(prefix="/admin/dashboard", tags=["admin-dashboard"])
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
-async def get_dashboard_summary_route(
-    db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
-) -> DashboardSummaryResponse:
+async def dashboard_summary_route(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)) -> DashboardSummaryResponse:
     return await admin_service.get_dashboard_summary(db)

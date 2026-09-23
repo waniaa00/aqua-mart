@@ -86,7 +86,7 @@ export default function BuildMyAquarium() {
   function handleAdd() {
     addAquariumSetup({
       label: `Build My Aquarium — ${size} gal ${style}`,
-      lines: recommendation.map((l) => ({ id: l.id, qty: l.qty })),
+      lines: recommendation.map((l) => ({ id: l.id, qty: l.qty, product: l.product })),
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 2500);

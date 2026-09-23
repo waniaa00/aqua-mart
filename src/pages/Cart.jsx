@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
-import { getProductById } from '../data/products.js';
 import Icon from '../components/Icon.jsx';
 import ProductImage from '../components/ProductImage.jsx';
 
@@ -11,7 +10,11 @@ export default function Cart() {
   const { format } = useCurrency();
   const [checkedOut, setCheckedOut] = useState(false);
 
-  const lineItems = cart.items.map((item) => ({ ...item, product: getProductById(item.id) })).filter((i) => i.product);
+  // Cart lines carry their own product snapshot (see CartContext.addItem),
+  // so they render correctly regardless of whether the product came from
+  // the mock catalog or the live API. A line from an older cart saved
+  // before that change won't have one — drop it rather than crash.
+  const lineItems = cart.items.filter((item) => item.product);
   const productSubtotal = lineItems.reduce((sum, i) => sum + i.product.price * i.qty, 0);
   const serviceSubtotal = cart.services.reduce((sum, s) => sum + (s.price ?? 0), 0);
   const total = productSubtotal + serviceSubtotal;

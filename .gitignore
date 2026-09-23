@@ -13,3 +13,4 @@ backend/**/*.pyc
 backend/.ruff_cache/
 uv.lock.bak
 .env
+.env.local

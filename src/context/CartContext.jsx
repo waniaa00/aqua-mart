@@ -43,7 +43,7 @@ export function CartProvider({ children }) {
           const existing = prev.items.find((i) => i.id === product.id);
           const items = existing
             ? prev.items.map((i) => (i.id === product.id ? { ...i, qty: i.qty + qty } : i))
-            : [...prev.items, { id: product.id, qty }];
+            : [...prev.items, { id: product.id, qty, product }];
           return { ...prev, items };
         });
       },
@@ -70,7 +70,10 @@ export function CartProvider({ children }) {
       addAquariumSetup(setup) {
         setCart((prev) => ({
           ...prev,
-          items: [...prev.items, ...setup.lines.map((line) => ({ id: line.id, qty: line.qty, bundleLabel: setup.label }))],
+          items: [
+            ...prev.items,
+            ...setup.lines.map((line) => ({ id: line.id, qty: line.qty, product: line.product, bundleLabel: setup.label })),
+          ],
         }));
       },
 

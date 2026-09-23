@@ -1,34 +1,67 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
-import { PRODUCTS, CATEGORIES } from '../data/products.js';
+import { fetchCategories, fetchProducts } from '../api/products.js';
 
-const GROUPS = [...new Set(CATEGORIES.map((c) => c.group))];
+// Debounces the search box so every keystroke doesn't fire a request —
+// waits for a short pause in typing before hitting the API.
+function useDebounced(value, delayMs) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeCategory = searchParams.get('category') ?? 'all';
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebounced(query, 300);
 
-  function setCategory(id) {
-    if (id === 'all') {
+  const [categories, setCategories] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
+
+  useEffect(() => {
+    fetchCategories()
+      .then(setCategories)
+      .catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    fetchProducts({
+      search: debouncedQuery.trim() || undefined,
+      category: activeCategory === 'all' ? undefined : activeCategory,
+      limit: 100,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setProducts(res.items);
+        setStatus('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCategory, debouncedQuery]);
+
+  function setCategory(slug) {
+    if (slug === 'all') {
       searchParams.delete('category');
     } else {
-      searchParams.set('category', id);
+      searchParams.set('category', slug);
     }
     setSearchParams(searchParams);
   }
 
-  const products = useMemo(() => {
-    let list = activeCategory === 'all' ? PRODUCTS : PRODUCTS.filter((p) => p.category === activeCategory);
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.tagline?.toLowerCase().includes(q));
-    }
-    return list;
-  }, [activeCategory, query]);
-
-  const activeLabel = activeCategory === 'all' ? 'All Products' : CATEGORIES.find((c) => c.id === activeCategory)?.label;
+  const activeLabel = activeCategory === 'all' ? 'All Products' : categories.find((c) => c.slug === activeCategory)?.name ?? 'All Products';
 
   return (
     <section className="section">
@@ -43,15 +76,10 @@ export default function Shop() {
             All Products
           </button>
 
-          {GROUPS.map((group) => (
-            <div key={group} className="shop-category-group">
-              <span className="shop-category-group-label">{group}</span>
-              {CATEGORIES.filter((c) => c.group === group).map((c) => (
-                <button key={c.id} className={`shop-category-link ${activeCategory === c.id ? 'active' : ''}`} onClick={() => setCategory(c.id)}>
-                  {c.label}
-                </button>
-              ))}
-            </div>
+          {categories.map((c) => (
+            <button key={c.id} className={`shop-category-link ${activeCategory === c.slug ? 'active' : ''}`} onClick={() => setCategory(c.slug)}>
+              {c.name}
+            </button>
           ))}
         </aside>
 
@@ -61,18 +89,27 @@ export default function Shop() {
               <span className="eyebrow">Shop</span>
               <h1 className="shop-heading">{activeLabel}</h1>
             </div>
-            <span className="muted">{products.length} product{products.length === 1 ? '' : 's'}</span>
+            {status === 'ready' && (
+              <span className="muted">
+                {products.length} product{products.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
 
-          {products.length === 0 ? (
-            <p className="muted">No products match that search. Try a different term or category.</p>
-          ) : (
-            <div className="grid grid-3">
-              {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
-          )}
+          {status === 'loading' && <p className="muted">Loading products…</p>}
+
+          {status === 'error' && <p className="muted">Couldn't load products right now. Please try again shortly.</p>}
+
+          {status === 'ready' &&
+            (products.length === 0 ? (
+              <p className="muted">No products match that search. Try a different term or category.</p>
+            ) : (
+              <div className="grid grid-3">
+                {products.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+            ))}
         </div>
       </div>
     </section>

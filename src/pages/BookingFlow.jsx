@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getServiceById } from '../data/services.js';
 import { PRODUCTS } from '../data/products.js';
@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import Icon from '../components/Icon.jsx';
 import ProductImage from '../components/ProductImage.jsx';
+import { fetchServiceById } from '../api/services.js';
 
 const TANK_SIZES = ['5 gal', '10 gal', '20 gal', '29 gal', '55 gal', '75 gal', '100+ gal'];
 const DESIGN_STYLES = {
@@ -27,7 +28,29 @@ function todayPlus(days) {
 
 export default function BookingFlow() {
   const { serviceId } = useParams();
-  const service = getServiceById(serviceId);
+  // The Services page books against the live API (uuid ids); the curated
+  // teaser on the homepage still links to the mock catalog's slug ids until
+  // that page's own integration pass. Try live first, then fall back.
+  const mockService = getServiceById(serviceId);
+  const [service, setService] = useState(mockService ?? null);
+  const [loadingService, setLoadingService] = useState(!mockService);
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingService(!getServiceById(serviceId));
+    fetchServiceById(serviceId)
+      .then((s) => {
+        if (!cancelled) setService(s);
+      })
+      .catch(() => {
+        if (!cancelled) setService(getServiceById(serviceId) ?? null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingService(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceId]);
   const location = useLocation();
   const navigate = useNavigate();
   const { addBookedService, addAquariumSetup } = useCart();
@@ -53,10 +76,16 @@ export default function BookingFlow() {
   if (!service) {
     return (
       <section className="section container">
-        <h1>Service not found</h1>
-        <Link to="/services" className="btn btn-outline">
-          Back to Services
-        </Link>
+        {loadingService ? (
+          <p className="muted">Loading service…</p>
+        ) : (
+          <>
+            <h1>Service not found</h1>
+            <Link to="/services" className="btn btn-outline">
+              Back to Services
+            </Link>
+          </>
+        )}
       </section>
     );
   }
@@ -93,9 +122,10 @@ export default function BookingFlow() {
     });
 
     if (isSetupFlow && data.stock.length > 0) {
+      const options = STOCK_OPTIONS[data.waterType] ?? [];
       addAquariumSetup({
         label: `${service.name} — ${data.size}`,
-        lines: data.stock.map((id) => ({ id, qty: 1 })),
+        lines: data.stock.map((id) => ({ id, qty: 1, product: options.find((p) => p.id === id) })),
       });
     }
 
@@ -175,6 +205,7 @@ export default function BookingFlow() {
 }
 
 function buildSteps(isSetupFlow, service) {
+  if (!service) return [];
   if (isSetupFlow) {
     return [
       { id: 'size', label: 'Aquarium Size' },

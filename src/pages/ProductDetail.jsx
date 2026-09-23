@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ProductImage from '../components/ProductImage.jsx';
 import ProductCard from '../components/ProductCard.jsx';
 import Icon from '../components/Icon.jsx';
 import { useCart } from '../context/CartContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
-import { getProductById, PRODUCTS, CATEGORIES } from '../data/products.js';
+import { fetchProductBySlug, fetchProducts } from '../api/products.js';
 
 const AVAILABILITY_BADGE = {
   'In Stock': 'badge-success',
@@ -14,29 +14,70 @@ const AVAILABILITY_BADGE = {
 };
 
 export default function ProductDetail() {
-  const { id } = useParams();
+  const { id: slug } = useParams();
   const navigate = useNavigate();
   const { addItem } = useCart();
   const { format } = useCurrency();
-  const product = getProductById(id);
+
+  const [product, setProduct] = useState(null);
+  const [related, setRelated] = useState([]);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'not-found' | 'error'
   const [qty, setQty] = useState(1);
   const [reserved, setReserved] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
 
-  if (!product) {
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    setProduct(null);
+    setRelated([]);
+    setQty(1);
+    setReserved(false);
+
+    fetchProductBySlug(slug)
+      .then((p) => {
+        if (cancelled) return;
+        setProduct(p);
+        setStatus('ready');
+        if (p.category) {
+          fetchProducts({ category: p.category, limit: 4 })
+            .then((res) => {
+              if (!cancelled) setRelated(res.items.filter((item) => item.id !== p.id).slice(0, 3));
+            })
+            .catch(() => {});
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStatus(err?.status === 404 ? 'not-found' : 'error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  if (status === 'loading') {
     return (
       <section className="section container">
-        <h1>Product not found</h1>
-        <p className="muted">That listing may have sold out or moved.</p>
+        <p className="muted">Loading product…</p>
+      </section>
+    );
+  }
+
+  if (status !== 'ready') {
+    return (
+      <section className="section container">
+        <h1>{status === 'not-found' ? 'Product not found' : "Couldn't load this product"}</h1>
+        <p className="muted">
+          {status === 'not-found' ? 'That listing may have sold out or moved.' : 'Please try again shortly.'}
+        </p>
         <Link to="/shop" className="btn btn-outline">
           Back to Shop
         </Link>
       </section>
     );
   }
-
-  const category = CATEGORIES.find((c) => c.id === product.category);
-  const related = PRODUCTS.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3);
 
   function handleAddToCart() {
     addItem(product, qty);
@@ -52,7 +93,14 @@ export default function ProductDetail() {
     <section className="section">
       <div className="container">
         <nav className="breadcrumbs muted">
-          <Link to="/shop">Shop</Link> / <Link to={`/shop?category=${product.category}`}>{category?.label}</Link> / {product.name}
+          <Link to="/shop">Shop</Link>
+          {product.category && (
+            <>
+              {' '}
+              / <Link to={`/shop?category=${product.category}`}>{product.categoryLabel}</Link>
+            </>
+          )}{' '}
+          / {product.name}
         </nav>
 
         <div className="product-detail">

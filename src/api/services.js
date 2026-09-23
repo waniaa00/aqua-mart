@@ -10,3 +10,10 @@ export async function fetchServiceById(id) {
   const service = await apiFetch(`/services/${id}`);
   return adaptService(service);
 }
+
+// date: 'YYYY-MM-DD'. Returns raw SlotResponse objects (id, date,
+// start_time, capacity, remaining_capacity, is_blocked) — no adapter needed,
+// booking uses the slot id directly.
+export function fetchSlots(serviceId, date) {
+  return apiFetch(`/services/${serviceId}/slots`, { params: { date } });
+}

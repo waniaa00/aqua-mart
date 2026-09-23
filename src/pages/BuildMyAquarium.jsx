@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getProductById } from '../data/products.js';
-import { useCart } from '../context/CartContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
-import Icon from '../components/Icon.jsx';
 import ProductImage from '../components/ProductImage.jsx';
 
 const STYLES = ['Planted', 'Minimalist', 'Community', 'Biotope'];
@@ -71,26 +69,15 @@ function buildRecommendation({ size, experience, style }) {
 }
 
 export default function BuildMyAquarium() {
-  const { addAquariumSetup } = useCart();
   const { format } = useCurrency();
   const [size, setSize] = useState(20);
   const [experience, setExperience] = useState('Beginner');
   const [style, setStyle] = useState('Planted');
   const [budget, setBudget] = useState(200);
-  const [added, setAdded] = useState(false);
 
   const recommendation = useMemo(() => buildRecommendation({ size, experience, style }), [size, experience, style]);
   const total = recommendation.reduce((sum, l) => sum + l.product.price * l.qty, 0);
   const overBudget = total > budget;
-
-  function handleAdd() {
-    addAquariumSetup({
-      label: `Build My Aquarium — ${size} gal ${style}`,
-      lines: recommendation.map((l) => ({ id: l.id, qty: l.qty, product: l.product })),
-    });
-    setAdded(true);
-    setTimeout(() => setAdded(false), 2500);
-  }
 
   return (
     <section className="section">
@@ -172,17 +159,9 @@ export default function BuildMyAquarium() {
                 Fits your {format(budget)} budget with {format(budget - total)} to spare.
               </p>
             )}
-            <button className="btn btn-coral btn-block" onClick={handleAdd}>
-              {added ? (
-                <>
-                  Added to Cart <Icon name="check" size={16} />
-                </>
-              ) : (
-                'Add Complete Setup to Cart'
-              )}
-            </button>
             <p className="muted build-cta-note">
-              Want it delivered and installed?{' '}
+              This is a preview built from a sample catalog — browse the <Link to="/shop">real shop</Link> for what's
+              actually in stock, or want it delivered and installed?{' '}
               <Link to="/services/aquarium-setup">Book our Aquarium Setup service →</Link>
             </p>
           </div>

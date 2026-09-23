@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getServiceById } from '../data/services.js';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PRODUCTS } from '../data/products.js';
-import { useCart } from '../context/CartContext.jsx';
+import { fetchAddresses } from '../api/account.js';
+import { bookAppointment } from '../api/appointments.js';
+import { fetchServiceById, fetchSlots } from '../api/services.js';
+import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import Icon from '../components/Icon.jsx';
 import ProductImage from '../components/ProductImage.jsx';
-import { fetchServiceById } from '../api/services.js';
 
 const TANK_SIZES = ['5 gal', '10 gal', '20 gal', '29 gal', '55 gal', '75 gal', '100+ gal'];
 const DESIGN_STYLES = {
   Freshwater: ['Planted / Aquascape', 'Minimalist', 'Biotope', 'Community Mixed'],
   Marine: ['Reef', 'Fish-Only', 'Minimalist'],
 };
-const TIME_SLOTS = ['9:00 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM'];
 
+// Purely informational at this step (not added to any cart) — lets someone
+// planning a setup flag what they're interested in; it's folded into the
+// appointment's notes for the technician to see.
 const STOCK_OPTIONS = {
   Freshwater: PRODUCTS.filter((p) => p.category === 'freshwater' || p.category === 'plants').slice(0, 8),
   Marine: PRODUCTS.filter((p) => p.category === 'marine' || p.category === 'inverts').slice(0, 6),
@@ -26,66 +29,133 @@ function todayPlus(days) {
   return d.toISOString().slice(0, 10);
 }
 
+function formatTime(hhmmss) {
+  const [h, m] = hhmmss.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function formatDate(iso) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
 export default function BookingFlow() {
   const { serviceId } = useParams();
-  // The Services page books against the live API (uuid ids); the curated
-  // teaser on the homepage still links to the mock catalog's slug ids until
-  // that page's own integration pass. Try live first, then fall back.
-  const mockService = getServiceById(serviceId);
-  const [service, setService] = useState(mockService ?? null);
-  const [loadingService, setLoadingService] = useState(!mockService);
+  const navigate = useNavigate();
+  const { isAuthenticated, token } = useCustomerAuth();
+  const { format } = useCurrency();
+
+  const [service, setService] = useState(null);
+  const [serviceStatus, setServiceStatus] = useState('loading'); // 'loading' | 'ready' | 'not-found'
+
   useEffect(() => {
     let cancelled = false;
-    setLoadingService(!getServiceById(serviceId));
+    setServiceStatus('loading');
     fetchServiceById(serviceId)
       .then((s) => {
-        if (!cancelled) setService(s);
+        if (!cancelled) {
+          setService(s);
+          setServiceStatus('ready');
+        }
       })
       .catch(() => {
-        if (!cancelled) setService(getServiceById(serviceId) ?? null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingService(false);
+        if (!cancelled) setServiceStatus('not-found');
       });
     return () => {
       cancelled = true;
     };
   }, [serviceId]);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { addBookedService, addAquariumSetup } = useCart();
 
   const isSetupFlow = service?.flow === 'aquarium-setup';
-  const steps = useMemo(() => buildSteps(isSetupFlow, service), [isSetupFlow, service]);
+  const needsAddress = service?.location === 'home-visit';
+  const steps = useMemo(() => buildSteps(isSetupFlow, needsAddress), [isSetupFlow, needsAddress]);
 
   const [stepIndex, setStepIndex] = useState(0);
-  const [confirmed, setConfirmed] = useState(false);
   const [data, setData] = useState({
     size: '',
     waterType: '',
     style: '',
     stock: [],
     date: todayPlus(3),
-    time: '',
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
+    slotId: '',
+    slotLabel: '',
+    addressId: '',
+    notes: '',
   });
 
-  if (!service) {
+  const [slots, setSlots] = useState([]);
+  const [slotsStatus, setSlotsStatus] = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
+  const [addresses, setAddresses] = useState(null);
+
+  const [confirmed, setConfirmed] = useState(null);
+  const [booking, setBooking] = useState(false);
+  const [bookingError, setBookingError] = useState(null);
+
+  useEffect(() => {
+    if (!service?.id || !data.date) return;
+    let cancelled = false;
+    setSlotsStatus('loading');
+    setData((d) => ({ ...d, slotId: '', slotLabel: '' }));
+    fetchSlots(service.id, data.date)
+      .then((res) => {
+        if (!cancelled) {
+          setSlots(res);
+          setSlotsStatus('ready');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSlotsStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service?.id, data.date]);
+
+  useEffect(() => {
+    if (!needsAddress || !token) return;
+    let cancelled = false;
+    fetchAddresses(token).then((list) => {
+      if (cancelled) return;
+      setAddresses(list);
+      const def = list.find((a) => a.is_default) ?? list[0];
+      if (def) setData((d) => ({ ...d, addressId: d.addressId || def.id }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsAddress, token]);
+
+  if (serviceStatus === 'loading') {
     return (
       <section className="section container">
-        {loadingService ? (
-          <p className="muted">Loading service…</p>
-        ) : (
-          <>
-            <h1>Service not found</h1>
-            <Link to="/services" className="btn btn-outline">
-              Back to Services
-            </Link>
-          </>
-        )}
+        <p className="muted">Loading service…</p>
+      </section>
+    );
+  }
+
+  if (serviceStatus === 'not-found') {
+    return (
+      <section className="section container">
+        <h1>Service not found</h1>
+        <Link to="/services" className="btn btn-outline">
+          Back to Services
+        </Link>
+      </section>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <section className="section container">
+        <h1>{service.name}</h1>
+        <div className="card card-pad" style={{ textAlign: 'center' }}>
+          <p className="muted">Log in to book this service.</p>
+          <Link to="/account/login" state={{ from: `/services/${serviceId}` }} className="btn btn-primary">
+            Log In
+          </Link>
+        </div>
       </section>
     );
   }
@@ -108,28 +178,35 @@ export default function BookingFlow() {
     if (stepIndex > 0) setStepIndex((i) => i - 1);
   }
 
-  function handleConfirm() {
-    addBookedService({
-      serviceId: service.id,
-      name: service.name,
-      icon: service.icon,
-      price: service.price,
-      date: data.date,
-      time: data.time,
-      address: data.address || null,
-      contact: { name: data.name, email: data.email, phone: data.phone },
-      details: isSetupFlow ? { size: data.size, waterType: data.waterType, style: data.style } : undefined,
-    });
+  async function handleConfirm() {
+    setBookingError(null);
+    setBooking(true);
+    try {
+      const notesParts = [];
+      if (isSetupFlow) {
+        if (data.size) notesParts.push(`Tank size: ${data.size}`);
+        if (data.waterType) notesParts.push(`Water type: ${data.waterType}`);
+        if (data.style) notesParts.push(`Style: ${data.style}`);
+        if (data.stock.length > 0) {
+          const options = STOCK_OPTIONS[data.waterType] ?? [];
+          const names = data.stock.map((id) => options.find((p) => p.id === id)?.name).filter(Boolean);
+          if (names.length > 0) notesParts.push(`Interested in: ${names.join(', ')}`);
+        }
+      }
+      if (data.notes.trim()) notesParts.push(data.notes.trim());
 
-    if (isSetupFlow && data.stock.length > 0) {
-      const options = STOCK_OPTIONS[data.waterType] ?? [];
-      addAquariumSetup({
-        label: `${service.name} — ${data.size}`,
-        lines: data.stock.map((id) => ({ id, qty: 1, product: options.find((p) => p.id === id) })),
+      const appointment = await bookAppointment(token, {
+        serviceId: service.id,
+        slotId: data.slotId,
+        addressId: needsAddress ? data.addressId : null,
+        notes: notesParts.join(' — ') || null,
       });
+      setConfirmed(appointment);
+    } catch (err) {
+      setBookingError(err.message ?? 'Could not book this appointment. Please try again.');
+    } finally {
+      setBooking(false);
     }
-
-    setConfirmed(true);
   }
 
   if (confirmed) {
@@ -141,13 +218,9 @@ export default function BookingFlow() {
           </span>
           <h1>Appointment booked!</h1>
           <p className="muted">
-            {service.name} is booked for {formatDate(data.date)} at {data.time}. Any fish, plants, or equipment you picked
-            have been added to your cart.
+            {confirmed.service_name} is booked for {formatDate(confirmed.date)} at {formatTime(confirmed.start_time)}.
           </p>
           <div className="hero-actions" style={{ justifyContent: 'center' }}>
-            <Link to="/cart" className="btn btn-primary">
-              View Cart
-            </Link>
             <Link to="/services" className="btn btn-outline">
               Book Another Service
             </Link>
@@ -182,9 +255,18 @@ export default function BookingFlow() {
           update={update}
           toggleStock={toggleStock}
           service={service}
-          locationState={location.state}
+          slots={slots}
+          slotsStatus={slotsStatus}
+          addresses={addresses}
+          format={format}
         />
       </div>
+
+      {bookingError && (
+        <p role="alert" style={{ color: 'var(--danger)' }}>
+          {bookingError}
+        </p>
+      )}
 
       <div className="booking-nav">
         <button className="btn btn-outline" onClick={goBack} disabled={stepIndex === 0}>
@@ -195,8 +277,8 @@ export default function BookingFlow() {
             Continue
           </button>
         ) : (
-          <button className="btn btn-coral" onClick={handleConfirm} disabled={!canProceed}>
-            Book Appointment
+          <button className="btn btn-coral" onClick={handleConfirm} disabled={!canProceed || booking}>
+            {booking ? 'Booking…' : 'Book Appointment'}
           </button>
         )}
       </div>
@@ -204,27 +286,22 @@ export default function BookingFlow() {
   );
 }
 
-function buildSteps(isSetupFlow, service) {
-  if (!service) return [];
-  if (isSetupFlow) {
-    return [
-      { id: 'size', label: 'Aquarium Size' },
-      { id: 'waterType', label: 'Freshwater / Marine' },
-      { id: 'style', label: 'Design Style' },
-      { id: 'stock', label: 'Add Fish & Plants' },
-      { id: 'date', label: 'Visit Date' },
-      { id: 'time', label: 'Time Slot' },
-      { id: 'address', label: 'Address' },
-      { id: 'review', label: 'Confirm' },
-    ];
-  }
-  const steps = [
-    { id: 'date', label: 'Date' },
-    { id: 'time', label: 'Time Slot' },
-    { id: 'contact', label: 'Your Details' },
-  ];
-  if (service.location === 'home-visit') steps.push({ id: 'address', label: 'Address' });
-  steps.push({ id: 'review', label: 'Confirm' });
+function buildSteps(isSetupFlow, needsAddress) {
+  const steps = isSetupFlow
+    ? [
+        { id: 'size', label: 'Aquarium Size' },
+        { id: 'waterType', label: 'Freshwater / Marine' },
+        { id: 'style', label: 'Design Style' },
+        { id: 'stock', label: 'Fish & Plants' },
+        { id: 'date', label: 'Visit Date' },
+        { id: 'time', label: 'Time Slot' },
+      ]
+    : [
+        { id: 'date', label: 'Date' },
+        { id: 'time', label: 'Time Slot' },
+      ];
+  if (needsAddress) steps.push({ id: 'address', label: 'Address' });
+  steps.push({ id: 'notes', label: 'Notes' }, { id: 'review', label: 'Confirm' });
   return steps;
 }
 
@@ -241,11 +318,11 @@ function isStepValid(stepId, data) {
     case 'date':
       return Boolean(data.date);
     case 'time':
-      return Boolean(data.time);
-    case 'contact':
-      return Boolean(data.name && data.email);
+      return Boolean(data.slotId);
     case 'address':
-      return Boolean(data.address);
+      return Boolean(data.addressId);
+    case 'notes':
+      return true; // optional
     case 'review':
       return true;
     default:
@@ -253,12 +330,7 @@ function isStepValid(stepId, data) {
   }
 }
 
-function formatDate(iso) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-}
-
-function StepContent({ step, data, update, toggleStock, service, locationState }) {
-  const { format } = useCurrency();
+function StepContent({ step, data, update, toggleStock, service, slots, slotsStatus, addresses, format }) {
   switch (step.id) {
     case 'size':
       return (
@@ -286,7 +358,7 @@ function StepContent({ step, data, update, toggleStock, service, locationState }
     case 'stock': {
       const options = STOCK_OPTIONS[data.waterType] ?? [];
       return (
-        <FieldGroup title="Add fish & plants to your setup (optional)" hint="Selected items are added to your cart alongside the booking.">
+        <FieldGroup title="Fish & plants you're interested in (optional)" hint="Just for the technician's reference — not added to any cart.">
           <div className="stock-grid">
             {options.map((p) => (
               <label key={p.id} className={`stock-option ${data.stock.includes(p.id) ? 'active' : ''}`}>
@@ -295,7 +367,6 @@ function StepContent({ step, data, update, toggleStock, service, locationState }
                   <ProductImage product={p} aspect="1 / 1" />
                 </span>
                 <span>{p.name}</span>
-                <span className="muted">{format(p.price)}</span>
               </label>
             ))}
           </div>
@@ -306,46 +377,77 @@ function StepContent({ step, data, update, toggleStock, service, locationState }
     case 'date':
       return (
         <FieldGroup title={service.flow === 'aquarium-setup' ? 'Choose a home visit date' : 'Choose a date'}>
-          <input type="date" className="input" min={todayPlus(1)} value={data.date} onChange={(e) => update({ date: e.target.value })} style={{ maxWidth: '16rem' }} />
+          <input
+            type="date"
+            className="input"
+            min={todayPlus(1)}
+            value={data.date}
+            onChange={(e) => update({ date: e.target.value })}
+            style={{ maxWidth: '16rem' }}
+          />
         </FieldGroup>
       );
 
     case 'time':
       return (
         <FieldGroup title="Choose a time slot">
-          <ChoiceGrid options={TIME_SLOTS} value={data.time} onChange={(v) => update({ time: v })} />
+          {slotsStatus === 'loading' && <p className="muted">Loading available times…</p>}
+          {slotsStatus === 'error' && <p className="muted">Couldn't load times for that date.</p>}
+          {slotsStatus === 'ready' &&
+            (slots.length === 0 ? (
+              <p className="muted">No open slots on that date — try another day.</p>
+            ) : (
+              <div className="choice-grid">
+                {slots.map((s) => {
+                  const full = s.is_blocked || s.remaining_capacity <= 0;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`choice-chip ${data.slotId === s.id ? 'active' : ''}`}
+                      disabled={full}
+                      onClick={() => update({ slotId: s.id, slotLabel: formatTime(s.start_time) })}
+                    >
+                      {formatTime(s.start_time)}
+                      {full ? ' (full)' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
         </FieldGroup>
       );
 
     case 'address':
       return (
         <FieldGroup title="Where should we come?">
-          {locationState?.productName && (
-            <p className="muted" style={{ marginTop: '-0.5rem' }}>
-              Scheduling delivery for: <strong>{locationState.productName}</strong>
+          {addresses === null ? (
+            <p className="muted">Loading addresses…</p>
+          ) : addresses.length === 0 ? (
+            <p className="muted">
+              You have no saved addresses. <Link to="/account">Add one</Link> before booking a home visit.
             </p>
+          ) : (
+            <select className="input" value={data.addressId} onChange={(e) => update({ addressId: e.target.value })} style={{ maxWidth: '28rem' }}>
+              {addresses.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.full_name} — {a.address_line}, {a.city}
+                </option>
+              ))}
+            </select>
           )}
-          <textarea className="input" placeholder="Street address, city, ZIP" value={data.address} onChange={(e) => update({ address: e.target.value })} />
         </FieldGroup>
       );
 
-    case 'contact':
+    case 'notes':
       return (
-        <FieldGroup title="Your details">
-          <div className="grid grid-2">
-            <div className="field">
-              <label htmlFor="bf-name">Name</label>
-              <input id="bf-name" className="input" value={data.name} onChange={(e) => update({ name: e.target.value })} />
-            </div>
-            <div className="field">
-              <label htmlFor="bf-email">Email</label>
-              <input id="bf-email" type="email" className="input" value={data.email} onChange={(e) => update({ email: e.target.value })} />
-            </div>
-          </div>
-          <div className="field">
-            <label htmlFor="bf-phone">Phone (optional)</label>
-            <input id="bf-phone" className="input" value={data.phone} onChange={(e) => update({ phone: e.target.value })} />
-          </div>
+        <FieldGroup title="Anything we should know? (optional)">
+          <textarea
+            className="input"
+            placeholder="Notes for the technician…"
+            value={data.notes}
+            onChange={(e) => update({ notes: e.target.value })}
+          />
         </FieldGroup>
       );
 
@@ -376,38 +478,24 @@ function StepContent({ step, data, update, toggleStock, service, locationState }
                   <td>{data.style}</td>
                 </tr>
               )}
-              {data.stock?.length > 0 && (
-                <tr>
-                  <th>Fish &amp; Plants</th>
-                  <td>{data.stock.length} item(s) added to cart</td>
-                </tr>
-              )}
               <tr>
                 <th>Date</th>
                 <td>{formatDate(data.date)}</td>
               </tr>
               <tr>
                 <th>Time</th>
-                <td>{data.time}</td>
+                <td>{data.slotLabel}</td>
               </tr>
-              {data.address && (
+              {data.notes && (
                 <tr>
-                  <th>Address</th>
-                  <td>{data.address}</td>
-                </tr>
-              )}
-              {data.name && (
-                <tr>
-                  <th>Contact</th>
-                  <td>
-                    {data.name} · {data.email}
-                  </td>
+                  <th>Notes</th>
+                  <td>{data.notes}</td>
                 </tr>
               )}
               <tr>
                 <th>Price</th>
                 <td>
-                  {format(service.price)}
+                  From {format(service.price)}
                   {service.priceNote ? ` ${service.priceNote}` : ''}
                 </td>
               </tr>
@@ -425,7 +513,11 @@ function FieldGroup({ title, hint, children }) {
   return (
     <div>
       <h3 className="booking-step-title">{title}</h3>
-      {hint && <p className="muted" style={{ marginTop: '-0.5rem' }}>{hint}</p>}
+      {hint && (
+        <p className="muted" style={{ marginTop: '-0.5rem' }}>
+          {hint}
+        </p>
+      )}
       {children}
     </div>
   );

@@ -3,15 +3,8 @@ import { Navigate, useLocation } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext.jsx';
-import {
-  createAddress,
-  deleteAddress,
-  fetchAddresses,
-  fetchOrders,
-  setDefaultAddress,
-  updateAddress,
-  updateProfile,
-} from '../api/account.js';
+import { createAddress, deleteAddress, fetchAddresses, setDefaultAddress, updateAddress, updateProfile } from '../api/account.js';
+import { fetchOrders } from '../api/orders.js';
 
 const EMPTY_ADDRESS = {
   full_name: '',

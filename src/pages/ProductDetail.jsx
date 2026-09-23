@@ -4,6 +4,7 @@ import ProductImage from '../components/ProductImage.jsx';
 import ProductCard from '../components/ProductCard.jsx';
 import Icon from '../components/Icon.jsx';
 import { useCart } from '../context/CartContext.jsx';
+import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import { fetchProductBySlug, fetchProducts } from '../api/products.js';
 
@@ -17,7 +18,9 @@ export default function ProductDetail() {
   const { id: slug } = useParams();
   const navigate = useNavigate();
   const { addItem } = useCart();
+  const { isAuthenticated } = useCustomerAuth();
   const { format } = useCurrency();
+  const [adding, setAdding] = useState(false);
 
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState([]);
@@ -79,10 +82,20 @@ export default function ProductDetail() {
     );
   }
 
-  function handleAddToCart() {
-    addItem(product, qty);
-    setJustAdded(true);
-    setTimeout(() => setJustAdded(false), 2000);
+  async function handleAddToCart() {
+    if (!isAuthenticated) {
+      navigate('/account/login', { state: { from: `/product/${slug}` } });
+      return;
+    }
+    if (!product.productId) return; // mock-catalog product, not in the real backend
+    setAdding(true);
+    try {
+      await addItem(product.productId, qty);
+      setJustAdded(true);
+      setTimeout(() => setJustAdded(false), 2000);
+    } finally {
+      setAdding(false);
+    }
   }
 
   function handleScheduleDelivery() {
@@ -141,11 +154,13 @@ export default function ProductDetail() {
                   +
                 </button>
               </div>
-              <button className="btn btn-primary" onClick={handleAddToCart}>
+              <button className="btn btn-primary" onClick={handleAddToCart} disabled={adding}>
                 {justAdded ? (
                   <>
                     Added <Icon name="check" size={16} />
                   </>
+                ) : adding ? (
+                  'Adding…'
                 ) : (
                   'Add to Cart'
                 )}

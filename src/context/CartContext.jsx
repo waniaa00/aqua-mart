@@ -1,89 +1,101 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import * as cartApi from '../api/cart.js';
+import { useCustomerAuth } from './CustomerAuthContext.jsx';
 
-// A single cart holding both product line items (id + qty) and booked
-// services (each its own line, since a service booking carries its own date
-// / time / address rather than a quantity). Persisted to localStorage so a
-// refresh doesn't lose the cart - this is a front-end prototype with no
-// backend, so localStorage is the only persistence available.
-
-const STORAGE_KEY = 'aqua-mart-cart-v1';
+// Server-owned cart: the backend requires a logged-in customer for every
+// cart operation (no guest cart), so this context holds only the backend's
+// last CartResponse — no localStorage, no client-computed totals. `cart` is
+// null whenever there's no authenticated session.
 const CartContext = createContext(null);
 
-function loadInitialCart() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { items: [], services: [] };
-    const parsed = JSON.parse(raw);
-    return { items: parsed.items ?? [], services: parsed.services ?? [] };
-  } catch {
-    // corrupt or inaccessible storage (private browsing, quota, bad JSON) -
-    // fall back to an empty cart rather than breaking the page
-    return { items: [], services: [] };
-  }
-}
-
 export function CartProvider({ children }) {
-  const [cart, setCart] = useState(loadInitialCart);
+  const { isAuthenticated, token, ready } = useCustomerAuth();
+  const [cart, setCart] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  // Guards against a stale in-flight request landing after a newer one.
+  const requestIdRef = useRef(0);
+
+  const refresh = useCallback(async () => {
+    if (!token) {
+      setCart(null);
+      return;
+    }
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await cartApi.getCart(token);
+      if (requestId === requestIdRef.current) setCart(result);
+    } catch (err) {
+      if (requestId === requestIdRef.current) setError(err);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, [token]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
-    } catch {
-      // ignore - storage may be full or unavailable; the cart still works
-      // for the rest of this session, it just won't persist across reloads
+    if (!ready) return;
+    if (token) {
+      refresh();
+    } else {
+      requestIdRef.current += 1; // invalidate any in-flight request from the previous session
+      setCart(null);
     }
-  }, [cart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, ready]);
+
+  async function addItem(productId, quantity = 1) {
+    const result = await cartApi.addItem(token, productId, quantity);
+    requestIdRef.current += 1;
+    setCart(result);
+    return result;
+  }
+
+  async function updateItem(productId, quantity) {
+    const result = await cartApi.updateItem(token, productId, quantity);
+    requestIdRef.current += 1;
+    setCart(result);
+    return result;
+  }
+
+  async function removeItem(productId) {
+    const result = await cartApi.removeItem(token, productId);
+    requestIdRef.current += 1;
+    setCart(result);
+    return result;
+  }
+
+  async function applyCoupon(code) {
+    const result = await cartApi.applyCoupon(token, code);
+    requestIdRef.current += 1;
+    setCart(result);
+    return result;
+  }
+
+  async function removeCoupon() {
+    const result = await cartApi.removeCoupon(token);
+    requestIdRef.current += 1;
+    setCart(result);
+    return result;
+  }
 
   const api = useMemo(
     () => ({
       cart,
-
-      addItem(product, qty = 1) {
-        setCart((prev) => {
-          const existing = prev.items.find((i) => i.id === product.id);
-          const items = existing
-            ? prev.items.map((i) => (i.id === product.id ? { ...i, qty: i.qty + qty } : i))
-            : [...prev.items, { id: product.id, qty, product }];
-          return { ...prev, items };
-        });
-      },
-
-      removeItem(id) {
-        setCart((prev) => ({ ...prev, items: prev.items.filter((i) => i.id !== id) }));
-      },
-
-      setItemQty(id, qty) {
-        setCart((prev) => ({
-          ...prev,
-          items: qty <= 0 ? prev.items.filter((i) => i.id !== id) : prev.items.map((i) => (i.id === id ? { ...i, qty } : i)),
-        }));
-      },
-
-      addBookedService(booking) {
-        setCart((prev) => ({ ...prev, services: [...prev.services, { ...booking, bookingId: crypto.randomUUID() }] }));
-      },
-
-      removeBookedService(bookingId) {
-        setCart((prev) => ({ ...prev, services: prev.services.filter((s) => s.bookingId !== bookingId) }));
-      },
-
-      addAquariumSetup(setup) {
-        setCart((prev) => ({
-          ...prev,
-          items: [
-            ...prev.items,
-            ...setup.lines.map((line) => ({ id: line.id, qty: line.qty, product: line.product, bundleLabel: setup.label })),
-          ],
-        }));
-      },
-
-      clearCart() {
-        setCart({ items: [], services: [] });
-      },
-
-      itemCount: cart.items.reduce((sum, i) => sum + i.qty, 0) + cart.services.length,
+      loading,
+      error,
+      isAuthenticated,
+      itemCount: cart?.items?.reduce((sum, i) => sum + i.quantity, 0) ?? 0,
+      refresh,
+      addItem,
+      updateItem,
+      removeItem,
+      applyCoupon,
+      removeCoupon,
     }),
-    [cart]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cart, loading, error, isAuthenticated, refresh, token]
   );
 
   return <CartContext.Provider value={api}>{children}</CartContext.Provider>;

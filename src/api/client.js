@@ -6,10 +6,11 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -27,14 +28,19 @@ export async function apiFetch(path, { params, ...options } = {}) {
   });
 
   if (!res.ok) {
-    let detail = res.statusText;
+    // The backend's exception handlers always respond with
+    // {"error": {"code", "message"}} (see app/core/exceptions.py) — fall
+    // back to statusText only if the body isn't JSON or doesn't match.
+    let message = res.statusText;
+    let code;
     try {
       const body = await res.json();
-      detail = body?.detail ?? detail;
+      message = body?.error?.message ?? message;
+      code = body?.error?.code;
     } catch {
       // error body wasn't JSON — fall back to statusText
     }
-    throw new ApiError(typeof detail === 'string' ? detail : JSON.stringify(detail), res.status);
+    throw new ApiError(message, res.status, code);
   }
 
   if (res.status === 204) return null;

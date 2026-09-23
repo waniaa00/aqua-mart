@@ -31,7 +31,3 @@ export function deleteAddress(token, id) {
 export function setDefaultAddress(token, id) {
   return apiFetch(`/users/me/addresses/${id}/default`, authed(token, { method: 'POST' }));
 }
-
-export async function fetchOrders(token, { page = 1, limit = 20 } = {}) {
-  return apiFetch('/orders', authed(token, { params: { page, limit } }));
-}

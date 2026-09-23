@@ -69,7 +69,7 @@ export function adaptProductListItem(product, categoriesById) {
     category: category?.slug ?? null,
     categoryLabel: category?.name ?? null,
     productType: product.product_type,
-    price: Number(product.price.base_price),
+    price: product.price, // the backend's Money object — see CurrencyContext.format()
     badges: product.is_featured ? ['Featured'] : [],
     gradient: gradientFor(product.id),
     reservable: product.product_type === 'fish',
@@ -106,7 +106,7 @@ export function adaptService(service) {
     name: service.name,
     summary: service.description,
     duration: service.duration_minutes >= 60 ? `${Math.round(service.duration_minutes / 60)} hr` : `${service.duration_minutes} min`,
-    price: Number(service.price.base_price),
+    price: service.price, // always USD — the backend doesn't currency-convert services
     priceNote: meta.priceNote,
     flow: meta.flow,
     location: meta.location,

@@ -1,19 +1,17 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 
-// Every price in the data files (products.js, services.js) is a plain USD
-// number. This context converts and formats them into the shopper's chosen
-// currency, fetching USD -> {GBP, PKR} rates from a free, key-less exchange
-// rate API and caching them in localStorage for 12h - this is a front-end
-// prototype with no backend to proxy the request through, so the browser
-// calls the rate API directly and falls back to fixed approximate rates if
-// that request fails or the shopper is offline.
+// Per 002-frontend-integration/research.md §7: the backend is authoritative
+// for currency conversion (every priced response already carries a
+// converted `display_price`/`display_currency`) — this context holds only
+// the *selected* currency and formats what the backend returns. It does not
+// fetch exchange rates or convert anything itself.
+//
+// format() also accepts a plain number for the few pages that still haven't
+// migrated off local mock data (Home's illustrative CTA numbers, the mock
+// services list) — those render as plain USD, unconverted, since there's no
+// backend response to draw a real conversion from.
 
 const CURRENCY_STORAGE_KEY = 'aqua-mart-currency-v1';
-const RATES_CACHE_KEY = 'aqua-mart-fx-rates-v1';
-const RATES_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-const RATES_API = 'https://open.er-api.com/v6/latest/USD';
-
-const FALLBACK_RATES = { USD: 1, GBP: 0.79, PKR: 278 };
 
 export const CURRENCIES = [
   { code: 'USD', name: 'US Dollar', locale: 'en-US' },
@@ -32,70 +30,38 @@ function loadStoredCurrency() {
   }
 }
 
-function loadCachedRates() {
-  try {
-    const raw = localStorage.getItem(RATES_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.rates && parsed?.fetchedAt ? parsed : null;
-  } catch {
-    return null;
-  }
+function formatAmount(amount, currencyCode) {
+  const meta = CURRENCIES.find((c) => c.code === currencyCode) ?? CURRENCIES[0];
+  return new Intl.NumberFormat(meta.locale, { style: 'currency', currency: meta.code }).format(Number(amount));
 }
 
 export function CurrencyProvider({ children }) {
-  const [currency, setCurrency] = useState(loadStoredCurrency);
-  const [rates, setRates] = useState(() => loadCachedRates()?.rates ?? FALLBACK_RATES);
+  const [currency, setCurrencyState] = useState(loadStoredCurrency);
 
-  useEffect(() => {
+  function setCurrency(code) {
+    setCurrencyState(code);
     try {
-      localStorage.setItem(CURRENCY_STORAGE_KEY, currency);
+      localStorage.setItem(CURRENCY_STORAGE_KEY, code);
     } catch {
-      // ignore - the picker still works for the rest of this session
+      // ignore — the picker still works for the rest of this session
     }
-  }, [currency]);
+  }
 
-  useEffect(() => {
-    const cached = loadCachedRates();
-    if (cached && Date.now() - cached.fetchedAt < RATES_MAX_AGE_MS) return;
-
-    let cancelled = false;
-    fetch(RATES_API)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`status ${res.status}`))))
-      .then((data) => {
-        if (cancelled || data.result !== 'success' || !data.rates?.GBP || !data.rates?.PKR) {
-          throw new Error('unexpected exchange-rate response');
-        }
-        const next = { USD: 1, GBP: data.rates.GBP, PKR: data.rates.PKR };
-        setRates(next);
-        try {
-          localStorage.setItem(RATES_CACHE_KEY, JSON.stringify({ rates: next, fetchedAt: Date.now() }));
-        } catch {
-          // ignore
-        }
-      })
-      .catch(() => {
-        // network/API failure - keep whatever rates are already in state
-        // (cached or the fixed fallback) rather than breaking price display
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const api = useMemo(() => {
-    const meta = CURRENCIES.find((c) => c.code === currency) ?? CURRENCIES[0];
-    const rate = rates[currency] ?? 1;
-    const formatter = new Intl.NumberFormat(meta.locale, { style: 'currency', currency: meta.code });
-
-    return {
+  const api = useMemo(
+    () => ({
       currency,
       setCurrency,
-      convert: (usdAmount) => usdAmount * rate,
-      format: (usdAmount) => formatter.format(usdAmount * rate),
-    };
-  }, [currency, rates]);
+      // Accepts either the backend's Money shape ({display_price,
+      // display_currency, ...}) or a plain number (mock-data fallback).
+      format: (value) => {
+        if (value && typeof value === 'object' && 'display_price' in value) {
+          return formatAmount(value.display_price, value.display_currency);
+        }
+        return formatAmount(value, 'USD');
+      },
+    }),
+    [currency]
+  );
 
   return <CurrencyContext.Provider value={api}>{children}</CurrencyContext.Provider>;
 }

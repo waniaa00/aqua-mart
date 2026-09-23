@@ -20,9 +20,11 @@ async function categoriesById() {
   return new Map(categories.map((c) => [c.id, c]));
 }
 
-export async function fetchProducts({ search, category, page = 1, limit = 20 } = {}) {
+export async function fetchProducts({ search, category, productType, freshwaterOrMarine, page = 1, limit = 20, currency } = {}) {
   const [response, byId] = await Promise.all([
-    apiFetch('/products', { params: { search, category, page, limit } }),
+    apiFetch('/products', {
+      params: { search, category, product_type: productType, freshwater_or_marine: freshwaterOrMarine, page, limit, currency },
+    }),
     categoriesById(),
   ]);
   return {
@@ -33,7 +35,7 @@ export async function fetchProducts({ search, category, page = 1, limit = 20 } =
   };
 }
 
-export async function fetchProductBySlug(slug) {
-  const [product, byId] = await Promise.all([apiFetch(`/products/${slug}`), categoriesById()]);
+export async function fetchProductBySlug(slug, currency) {
+  const [product, byId] = await Promise.all([apiFetch(`/products/${slug}`, { params: { currency } }), categoriesById()]);
   return adaptProductDetail(product, byId);
 }

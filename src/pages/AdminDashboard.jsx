@@ -82,7 +82,7 @@ export default function AdminDashboard() {
                   <Icon name={icon} size={18} /> {label}
                 </span>
                 <div style={{ fontSize: '1.6rem', fontWeight: 700 }}>
-                  {money ? format(Number(summary[key].base_price)) : summary[key]}
+                  {money ? format(summary[key]) : summary[key]}
                 </div>
               </div>
             ))}
@@ -146,7 +146,7 @@ export default function AdminDashboard() {
                     <li key={o.id} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className={`badge ${STATUS_BADGE[o.status] ?? 'badge'}`}>{o.status}</span>
-                        <span className="price">{format(Number(o.total.base_price))}</span>
+                        <span className="price">{format(o.total)}</span>
                       </div>
                       <p className="muted" style={{ margin: '0.35rem 0 0' }}>
                         {o.items.map((i) => `${i.quantity}× ${i.product_name}`).join(', ')} · {formatDateTime(o.placed_at)}

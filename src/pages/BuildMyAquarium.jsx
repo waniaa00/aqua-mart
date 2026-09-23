@@ -1,83 +1,105 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getProductById } from '../data/products.js';
 import { useCurrency } from '../context/CurrencyContext.jsx';
+import { fetchProducts } from '../api/products.js';
 import ProductImage from '../components/ProductImage.jsx';
 
 const STYLES = ['Planted', 'Minimalist', 'Community', 'Biotope'];
 const EXPERIENCE_LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
 
-// A plain rule-based recommender, not a real optimizer or AI - it picks a
-// sensible, explainable stocking + equipment list from the existing catalog
-// based on a few straightforward thresholds. Good enough to be genuinely
-// useful, and a clear foundation to swap in something smarter later.
-function buildRecommendation({ size, experience, style }) {
+// Picks up to `count` distinct products from a pool, without repeating one
+// within a single recommendation. Returns fewer than `count` (or none) if
+// the live catalog doesn't have that many — honest about what's actually
+// in stock rather than inventing items.
+function pickDistinct(pool, count) {
+  return pool.slice(0, count);
+}
+
+function findByName(pool, needle) {
+  return pool.find((p) => p.name.toLowerCase().includes(needle));
+}
+
+// A plain rule-based recommender, not a real optimizer or AI — picks a
+// sensible, explainable stocking + equipment list from the *live* catalog
+// (FR-024, 002-frontend-integration) based on a few straightforward
+// thresholds. The real catalog only models three product types (fish,
+// equipment, supply — see data-model.md); there's no plant/decor/substrate
+// data to recommend, so the "planted vs. minimalist" style choice doesn't
+// currently change the result. The real catalog is also small, so results
+// will often be thin — that's the live inventory, not a bug.
+function buildRecommendation({ size, experience }, pools) {
+  const { fish, equipment, supply } = pools;
   const lines = [];
-  const planted = style === 'Planted' || style === 'Biotope';
 
   // --- livestock, scaled by tank size and experience ----------------------
-  if (size <= 10) {
-    lines.push({ id: 'betta-royal-blue', qty: 1 });
-  } else if (size <= 20) {
-    lines.push({ id: 'neon-tetra', qty: 6 });
-    lines.push({ id: 'guppy-fancy-mix', qty: 4 });
-  } else if (size <= 40) {
-    lines.push({ id: 'neon-tetra', qty: 6 });
-    if (experience === 'Beginner') {
-      lines.push({ id: 'molly-black', qty: 4 });
-    } else {
-      lines.push({ id: 'angelfish-marble', qty: 1 });
+  const speciesCount = size <= 10 ? 1 : size <= 40 ? 2 : 3;
+  const chosen = pickDistinct(fish, speciesCount);
+  chosen.forEach((product, i) => {
+    let qty = 1;
+    if (size > 10) qty = i === 0 ? (size > 40 ? 8 : 6) : experience === 'Beginner' ? 4 : 1;
+    lines.push({ product, qty });
+  });
+
+  // --- core equipment -----------------------------------------------------------
+  const filter = findByName(equipment, 'filter');
+  const heater = findByName(equipment, 'heater');
+  const light = findByName(equipment, 'light');
+  const usedEquipmentIds = new Set();
+  for (const item of [filter, heater, light]) {
+    if (item && !usedEquipmentIds.has(item.id)) {
+      lines.push({ product: item, qty: 1 });
+      usedEquipmentIds.add(item.id);
     }
-  } else {
-    lines.push({ id: 'neon-tetra', qty: 8 });
-    lines.push({ id: 'angelfish-marble', qty: 1 });
-    lines.push({ id: 'molly-black', qty: 4 });
   }
+  // Any other equipment not matched by name above, up to 2 more.
+  pickDistinct(
+    equipment.filter((p) => !usedEquipmentIds.has(p.id)),
+    2
+  ).forEach((product) => lines.push({ product, qty: 1 }));
 
-  if (experience !== 'Beginner' && size > 20) {
-    lines.push({ id: 'cherry-shrimp', qty: 1 }); // pack of 5 - cleanup crew for a more experienced setup
-  }
+  if (supply.length > 0) lines.push({ product: supply[0], qty: 1 });
 
-  // --- plants / decor -------------------------------------------------------
-  if (planted) {
-    lines.push({ id: 'java-fern', qty: 1 });
-    lines.push({ id: 'anubias-nana', qty: 1 });
-    if (size > 29) lines.push({ id: 'amazon-sword', qty: 1 });
-  } else {
-    lines.push({ id: 'decor-castle', qty: 1 });
-    lines.push({ id: 'decor-driftwood', qty: 1 });
-  }
-
-  // --- substrate --------------------------------------------------------------
-  lines.push({ id: planted ? 'substrate-planted' : 'substrate-river-gravel', qty: 1 });
-
-  // --- core equipment, sized by tank -------------------------------------------
-  lines.push({ id: size <= 30 ? 'filter-hob-30' : 'filter-canister-75', qty: 1 });
-  lines.push({ id: size <= 20 ? 'heater-50w' : 'heater-150w', qty: 1 });
-  lines.push({ id: 'light-led-planted', qty: 1 }); // doubles as a general-purpose fixture even without live plants
-  lines.push({ id: 'conditioner-declor', qty: 1 });
-
-  // merge duplicate ids (e.g. if a rule above ever adds the same item twice)
-  const merged = new Map();
-  for (const line of lines) {
-    merged.set(line.id, { id: line.id, qty: (merged.get(line.id)?.qty ?? 0) + line.qty });
-  }
-
-  return [...merged.values()]
-    .map((line) => ({ ...line, product: getProductById(line.id) }))
-    .filter((line) => line.product);
+  return lines;
 }
 
 export default function BuildMyAquarium() {
-  const { format } = useCurrency();
+  const { format, currency } = useCurrency();
   const [size, setSize] = useState(20);
   const [experience, setExperience] = useState('Beginner');
   const [style, setStyle] = useState('Planted');
   const [budget, setBudget] = useState(200);
 
-  const recommendation = useMemo(() => buildRecommendation({ size, experience, style }), [size, experience, style]);
-  const total = recommendation.reduce((sum, l) => sum + l.product.price * l.qty, 0);
-  const overBudget = total > budget;
+  const [pools, setPools] = useState(null);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    const opts = { limit: 20, currency };
+    Promise.all([
+      fetchProducts({ ...opts, productType: 'fish', freshwaterOrMarine: 'freshwater' }),
+      fetchProducts({ ...opts, productType: 'equipment' }),
+      fetchProducts({ ...opts, productType: 'supply' }),
+    ])
+      .then(([fish, equipment, supply]) => {
+        if (cancelled) return;
+        setPools({ fish: fish.items, equipment: equipment.items, supply: supply.items });
+        setStatus('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currency]);
+
+  const recommendation = useMemo(() => (pools ? buildRecommendation({ size, experience, style }, pools) : []), [pools, size, experience, style]);
+
+  const totalDisplay = recommendation.reduce((sum, l) => sum + Number(l.product.price.display_price) * l.qty, 0);
+  const totalMoney = { display_price: totalDisplay, display_currency: currency };
+  const compareToBudget = currency === 'USD'; // the budget slider is a fixed USD scale — see note below
+  const overBudget = compareToBudget && totalDisplay > budget;
 
   return (
     <section className="section">
@@ -86,8 +108,8 @@ export default function BuildMyAquarium() {
           <span className="eyebrow">Build My Aquarium</span>
           <h1>Tell us your tank. We'll build the setup.</h1>
           <p className="lede">
-            A straightforward, rule-based recommendation engine — tell it your tank size, experience, style, and budget,
-            and it puts together a compatible list of fish, plants, and equipment from our catalog.
+            A straightforward, rule-based recommendation engine — tell it your tank size and experience, and it puts
+            together a compatible list of fish and equipment from our live catalog.
           </p>
         </div>
 
@@ -118,10 +140,13 @@ export default function BuildMyAquarium() {
                   </button>
                 ))}
               </div>
+              <p className="muted" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
+                The live catalog doesn't have plants/decor yet, so style doesn't change picks — kept for when it does.
+              </p>
             </div>
 
             <div className="field">
-              <label htmlFor="bma-budget">Budget: {format(budget)}</label>
+              <label htmlFor="bma-budget">Budget (USD): ${budget}</label>
               <input id="bma-budget" type="range" min="50" max="600" step="10" value={budget} onChange={(e) => setBudget(Number(e.target.value))} />
             </div>
           </div>
@@ -130,38 +155,57 @@ export default function BuildMyAquarium() {
             <h3>
               Your Aquarium Setup <span className="muted">— {size} gal · {experience} · {style}</span>
             </h3>
-            <ul className="build-result-list">
-              {recommendation.map((line) => (
-                <li key={line.id}>
-                  <span>
-                    <span className="inline-thumb">
-                      <ProductImage product={line.product} aspect="1 / 1" />
-                    </span>{' '}
-                    {line.qty > 1 ? `${line.qty} × ` : ''}
-                    {line.product.name}
-                  </span>
-                  <span className="muted">{format(line.product.price * line.qty)}</span>
-                </li>
+
+            {status === 'loading' && <p className="muted">Loading the live catalog…</p>}
+            {status === 'error' && <p className="muted">Couldn't reach the catalog right now. Please try again shortly.</p>}
+
+            {status === 'ready' &&
+              (recommendation.length === 0 ? (
+                <p className="muted">No matching setup found in the live catalog right now.</p>
+              ) : (
+                <>
+                  <ul className="build-result-list">
+                    {recommendation.map((line) => (
+                      <li key={line.product.id}>
+                        <span>
+                          <span className="inline-thumb">
+                            <ProductImage product={line.product} aspect="1 / 1" />
+                          </span>{' '}
+                          {line.qty > 1 ? `${line.qty} × ` : ''}
+                          {line.product.name}
+                        </span>
+                        <span className="muted">
+                          {format({ display_price: Number(line.product.price.display_price) * line.qty, display_currency: currency })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <hr className="divider" />
+                  <div className="build-result-total">
+                    <span>Estimated Total</span>
+                    <span className="price">{format(totalMoney)}</span>
+                  </div>
+                  {compareToBudget ? (
+                    overBudget ? (
+                      <p className="muted build-budget-note over">
+                        This setup runs {format({ display_price: totalDisplay - budget, display_currency: currency })} over your $
+                        {budget} budget. Try a smaller tank, or book a <Link to="/services/fish-consultation">Fish Consultation</Link>{' '}
+                        to fine-tune it with us.
+                      </p>
+                    ) : (
+                      <p className="muted build-budget-note">
+                        Fits your ${budget} budget with {format({ display_price: budget - totalDisplay, display_currency: currency })}{' '}
+                        to spare.
+                      </p>
+                    )
+                  ) : (
+                    <p className="muted build-budget-note">Switch to USD to compare this estimate against your budget.</p>
+                  )}
+                </>
               ))}
-            </ul>
-            <hr className="divider" />
-            <div className="build-result-total">
-              <span>Estimated Total</span>
-              <span className="price">{format(total)}</span>
-            </div>
-            {overBudget ? (
-              <p className="muted build-budget-note over">
-                This setup runs {format(total - budget)} over your {format(budget)} budget. Try a smaller tank, or book a{' '}
-                <Link to="/services/fish-consultation">Fish Consultation</Link> to fine-tune it with us.
-              </p>
-            ) : (
-              <p className="muted build-budget-note">
-                Fits your {format(budget)} budget with {format(budget - total)} to spare.
-              </p>
-            )}
+
             <p className="muted build-cta-note">
-              This is a preview built from a sample catalog — browse the <Link to="/shop">real shop</Link> for what's
-              actually in stock, or want it delivered and installed?{' '}
+              Browse the <Link to="/shop">full shop</Link> for everything in stock, or want it delivered and installed?{' '}
               <Link to="/services/aquarium-setup">Book our Aquarium Setup service →</Link>
             </p>
           </div>

@@ -19,7 +19,7 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const { addItem } = useCart();
   const { isAuthenticated } = useCustomerAuth();
-  const { format } = useCurrency();
+  const { format, currency } = useCurrency();
   const [adding, setAdding] = useState(false);
 
   const [product, setProduct] = useState(null);
@@ -37,13 +37,13 @@ export default function ProductDetail() {
     setQty(1);
     setReserved(false);
 
-    fetchProductBySlug(slug)
+    fetchProductBySlug(slug, currency)
       .then((p) => {
         if (cancelled) return;
         setProduct(p);
         setStatus('ready');
         if (p.category) {
-          fetchProducts({ category: p.category, limit: 4 })
+          fetchProducts({ category: p.category, limit: 4, currency })
             .then((res) => {
               if (!cancelled) setRelated(res.items.filter((item) => item.id !== p.id).slice(0, 3));
             })
@@ -58,7 +58,7 @@ export default function ProductDetail() {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, currency]);
 
   if (status === 'loading') {
     return (

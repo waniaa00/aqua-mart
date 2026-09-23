@@ -7,10 +7,6 @@ import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import Icon from '../components/Icon.jsx';
 
-function money(m) {
-  return Number(m.base_price);
-}
-
 export default function Cart() {
   const { isAuthenticated, token } = useCustomerAuth();
   const { cart, loading, error, updateItem, removeItem, applyCoupon, removeCoupon, refresh } = useCart();
@@ -117,7 +113,7 @@ export default function Cart() {
             Order #{confirmedOrder.id.slice(0, 8)} has been created and is <strong>{confirmedOrder.status}</strong>.
             No payment has been charged — that integration isn't connected yet.
           </p>
-          <p className="price">{format(money(confirmedOrder.total))}</p>
+          <p className="price">{format(confirmedOrder.total)}</p>
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
             <Link to="/account" className="btn btn-outline">
               View Order History
@@ -174,7 +170,7 @@ export default function Cart() {
                 <div key={item.product_id} className="cart-line">
                   <div className="cart-line-body">
                     <span>{item.product_name}</span>
-                    <span className="muted">{format(money(item.unit_price))} each</span>
+                    <span className="muted">{format(item.unit_price)} each</span>
                   </div>
                   <div className="qty-input">
                     <button
@@ -190,7 +186,7 @@ export default function Cart() {
                       +
                     </button>
                   </div>
-                  <span className="price cart-line-total">{format(money(item.line_total))}</span>
+                  <span className="price cart-line-total">{format(item.line_total)}</span>
                   <button className="btn btn-ghost" onClick={() => handleRemove(item.product_id)} aria-label={`Remove ${item.product_name}`}>
                     <Icon name="x" size={16} />
                   </button>
@@ -235,16 +231,16 @@ export default function Cart() {
 
             <div className="cart-summary-row">
               <span className="muted">Subtotal</span>
-              <span>{format(money(cart.subtotal))}</span>
+              <span>{format(cart.subtotal)}</span>
             </div>
             <div className="cart-summary-row">
               <span className="muted">Discount</span>
-              <span>-{format(money(cart.discount_amount))}</span>
+              <span>-{format(cart.discount_amount)}</span>
             </div>
             <hr className="divider" />
             <div className="cart-summary-row cart-summary-total">
               <span>Total</span>
-              <span className="price">{format(money(cart.total))}</span>
+              <span className="price">{format(cart.total)}</span>
             </div>
 
             <div className="field" style={{ marginTop: '1rem' }}>

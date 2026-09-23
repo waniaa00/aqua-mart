@@ -325,7 +325,7 @@ export default function Account() {
                 <div key={o.id} style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className={`badge ${ORDER_STATUS_BADGE[o.status] ?? 'badge'}`}>{o.status}</span>
-                    <span className="price">{format(Number(o.total.base_price))}</span>
+                    <span className="price">{format(o.total)}</span>
                   </div>
                   <p className="muted" style={{ margin: '0.35rem 0 0' }}>
                     {o.items.map((i) => `${i.quantity}× ${i.product_name}`).join(', ')}

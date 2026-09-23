@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchCategories, fetchProducts } from '../api/products.js';
+import { useCurrency } from '../context/CurrencyContext.jsx';
 
 // Debounces the search box so every keystroke doesn't fire a request —
 // waits for a short pause in typing before hitting the API.
@@ -19,6 +20,7 @@ export default function Shop() {
   const activeCategory = searchParams.get('category') ?? 'all';
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounced(query, 300);
+  const { currency } = useCurrency();
 
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
@@ -37,6 +39,7 @@ export default function Shop() {
       search: debouncedQuery.trim() || undefined,
       category: activeCategory === 'all' ? undefined : activeCategory,
       limit: 100,
+      currency,
     })
       .then((res) => {
         if (cancelled) return;
@@ -50,7 +53,7 @@ export default function Shop() {
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, debouncedQuery]);
+  }, [activeCategory, debouncedQuery, currency]);
 
   function setCategory(slug) {
     if (slug === 'all') {

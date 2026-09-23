@@ -11,6 +11,8 @@ import Services from './pages/Services.jsx';
 import BookingFlow from './pages/BookingFlow.jsx';
 import BuildMyAquarium from './pages/BuildMyAquarium.jsx';
 import Experience from './pages/Experience.jsx';
+import AdminLogin from './pages/AdminLogin.jsx';
+import AdminDashboard from './pages/AdminDashboard.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 export default function App() {
@@ -32,6 +34,8 @@ export default function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/services/:serviceId" element={<BookingFlow />} />
         <Route path="/build-my-aquarium" element={<BuildMyAquarium />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin" element={<AdminDashboard />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

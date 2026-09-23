@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { CartProvider } from './context/CartContext.jsx';
 import { CurrencyProvider } from './context/CurrencyContext.jsx';
 import { AdminAuthProvider } from './context/AdminAuthContext.jsx';
+import { CustomerAuthProvider } from './context/CustomerAuthContext.jsx';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(
@@ -12,9 +13,11 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <CurrencyProvider>
         <CartProvider>
-          <AdminAuthProvider>
-            <App />
-          </AdminAuthProvider>
+          <CustomerAuthProvider>
+            <AdminAuthProvider>
+              <App />
+            </AdminAuthProvider>
+          </CustomerAuthProvider>
         </CartProvider>
       </CurrencyProvider>
     </BrowserRouter>

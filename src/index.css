@@ -445,6 +445,27 @@ hr.divider {
   outline-offset: 1px;
 }
 
+.account-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+
+.account-link-label {
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .account-link-label {
+    display: none;
+  }
+}
+
 .cart-link {
   position: relative;
   display: inline-flex;

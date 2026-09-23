@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext.jsx';
+import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import Icon from './Icon.jsx';
 import CurrencySelector from './CurrencySelector.jsx';
 
@@ -18,6 +19,7 @@ const NAV_LINKS = [
 
 export default function Header() {
   const { itemCount } = useCart();
+  const { isAuthenticated, user } = useCustomerAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -43,6 +45,11 @@ export default function Header() {
 
         <div className="site-header-actions">
           <CurrencySelector />
+
+          <Link to="/account" className="account-link" onClick={() => setMenuOpen(false)}>
+            <Icon name="user" size={20} />
+            <span className="account-link-label">{isAuthenticated ? user?.name?.split(' ')[0] ?? 'Account' : 'Log In'}</span>
+          </Link>
 
           <Link to="/cart" className="cart-link" aria-label={`Cart, ${itemCount} item${itemCount === 1 ? '' : 's'}`}>
             <Icon name="cart" size={22} />

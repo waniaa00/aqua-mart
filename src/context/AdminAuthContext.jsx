@@ -1,27 +1,18 @@
 import { createContext, useContext, useMemo, useState } from 'react';
 import { login as loginRequest } from '../api/auth.js';
+import { isTokenExpired } from '../utils/jwt.js';
 
-// Admin-only session, separate from any future customer auth. Holds just
-// the JWT the backend issues — role/expiry enforcement happens server-side
-// on every admin request; this only decides whether the UI shows the
-// login form or the dashboard.
+// Admin-only session, separate from the customer session (CustomerAuthContext).
+// Holds just the JWT the backend issues — role/expiry enforcement happens
+// server-side on every admin request; this only decides whether the UI shows
+// the login form or the dashboard.
 const TOKEN_STORAGE_KEY = 'aqua-mart-admin-token-v1';
 const AdminAuthContext = createContext(null);
-
-function isExpired(token) {
-  try {
-    const [, payload] = token.split('.');
-    const { exp } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
-    return !exp || Date.now() >= exp * 1000;
-  } catch {
-    return true;
-  }
-}
 
 function loadStoredToken() {
   try {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
-    return token && !isExpired(token) ? token : null;
+    return token && !isTokenExpired(token) ? token : null;
   } catch {
     return null;
   }

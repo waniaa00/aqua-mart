@@ -13,6 +13,9 @@ import BuildMyAquarium from './pages/BuildMyAquarium.jsx';
 import Experience from './pages/Experience.jsx';
 import AdminLogin from './pages/AdminLogin.jsx';
 import AdminDashboard from './pages/AdminDashboard.jsx';
+import AccountLogin from './pages/AccountLogin.jsx';
+import AccountSignup from './pages/AccountSignup.jsx';
+import Account from './pages/Account.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 export default function App() {
@@ -36,6 +39,9 @@ export default function App() {
         <Route path="/build-my-aquarium" element={<BuildMyAquarium />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/account/login" element={<AccountLogin />} />
+        <Route path="/account/signup" element={<AccountSignup />} />
+        <Route path="/account" element={<Account />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

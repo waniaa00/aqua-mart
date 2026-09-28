@@ -212,6 +212,8 @@ See `.specify/memory/constitution.md` for code quality, testing, performance, se
 ## Active Technologies
 - Python 3.12 (backend); existing frontend stays on its current React 19 / Vite stack — untouched by this feature + FastAPI, Pydantic v2 (+ pydantic-settings), SQLAlchemy 2.0 (async), Alembic, HTTPX, PyJWT, Passlib[bcrypt], uv (dependency/venv management) (001-fish-shop-backend)
 - PostgreSQL via Neon (serverless Postgres), one database for this feature; Alembic-managed schema (001-fish-shop-backend)
+- Python 3.12 (backend — three new/extended endpoints only) + React 19 (frontend, unchanged stack, no new npm dependency); no new tables, two new indexes on `orders` (003-interactive-dashboard)
 
 ## Recent Changes
+- 003-interactive-dashboard: Interactive customer + admin dashboards, almost entirely built against already-existing endpoints (see contracts/reused-endpoints-map.md); adds one new endpoint (date-range analytics) and extends two existing ones (admin order filters, product stock-status filter)
 - 001-fish-shop-backend: Added Python 3.12 (backend); existing frontend stays on its current React 19 / Vite stack — untouched by this feature + FastAPI, Pydantic v2 (+ pydantic-settings), SQLAlchemy 2.0 (async), Alembic, HTTPX, PyJWT, Passlib[bcrypt], uv (dependency/venv management)

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from app.schemas.address import AddressResponse
 from app.schemas.common import Money, ORMModel
@@ -50,3 +50,42 @@ class CustomerDetailResponse(CustomerSummaryResponse):
     addresses: list[AddressResponse]
     orders: list[OrderResponse]
     appointments: list[AppointmentResponse]
+
+
+# --- Analytics (contracts/analytics.md) ----------------------------------
+#
+# Amounts here are plain USD decimal strings, not the `Money` shape — this
+# endpoint (like the rest of admin reporting) never currency-converts, and
+# the comparison math (absolute/percentage diffs) is simpler over bare
+# decimals than over Money's base/display/exchange_rate triple.
+
+
+class AnalyticsRange(ORMModel):
+    start: date
+    end: date
+
+
+class AnalyticsSeriesPoint(ORMModel):
+    date: date
+    revenue: str
+    order_count: int
+
+
+class AnalyticsTotals(ORMModel):
+    revenue: str
+    order_count: int
+    average_order_value: str
+
+
+class AnalyticsComparison(ORMModel):
+    previous_totals: AnalyticsTotals
+    absolute_diff: AnalyticsTotals
+    percentage_diff: dict[str, float]
+
+
+class AnalyticsResponse(ORMModel):
+    range: AnalyticsRange
+    granularity: str
+    series: list[AnalyticsSeriesPoint]
+    totals: AnalyticsTotals
+    comparison: AnalyticsComparison | None = None

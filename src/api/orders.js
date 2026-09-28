@@ -11,3 +11,7 @@ export function checkout(token, addressId) {
 export function fetchOrders(token, { page = 1, limit = 20 } = {}) {
   return apiFetch('/orders', authed(token, { params: { page, limit } }));
 }
+
+export function getOrder(token, id) {
+  return apiFetch(`/orders/${id}`, authed(token));
+}

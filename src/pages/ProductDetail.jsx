@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import { fetchProductBySlug, fetchProducts } from '../api/products.js';
+import { addToWishlist, checkWishlistSaved, removeFromWishlist } from '../api/wishlist.js';
 
 const AVAILABILITY_BADGE = {
   'In Stock': 'badge-success',
@@ -18,9 +19,11 @@ export default function ProductDetail() {
   const { id: slug } = useParams();
   const navigate = useNavigate();
   const { addItem } = useCart();
-  const { isAuthenticated } = useCustomerAuth();
+  const { isAuthenticated, token } = useCustomerAuth();
   const { format, currency } = useCurrency();
   const [adding, setAdding] = useState(false);
+  const [wishlisted, setWishlisted] = useState(false);
+  const [wishlistBusy, setWishlistBusy] = useState(false);
 
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState([]);
@@ -59,6 +62,20 @@ export default function ProductDetail() {
       cancelled = true;
     };
   }, [slug, currency]);
+
+  useEffect(() => {
+    if (!token || !product?.productId) {
+      setWishlisted(false);
+      return;
+    }
+    let cancelled = false;
+    checkWishlistSaved(token, product.productId)
+      .then((res) => !cancelled && setWishlisted(res.saved))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, product?.productId]);
 
   if (status === 'loading') {
     return (
@@ -100,6 +117,26 @@ export default function ProductDetail() {
 
   function handleScheduleDelivery() {
     navigate('/services/fish-delivery', { state: { productName: product.name } });
+  }
+
+  async function handleToggleWishlist() {
+    if (!isAuthenticated) {
+      navigate('/account/login', { state: { from: `/product/${slug}` } });
+      return;
+    }
+    if (!product.productId) return;
+    setWishlistBusy(true);
+    try {
+      if (wishlisted) {
+        await removeFromWishlist(token, product.productId);
+        setWishlisted(false);
+      } else {
+        await addToWishlist(token, product.productId);
+        setWishlisted(true);
+      }
+    } finally {
+      setWishlistBusy(false);
+    }
   }
 
   return (
@@ -181,6 +218,14 @@ export default function ProductDetail() {
                   Schedule Delivery
                 </button>
               )}
+              <button
+                className="btn btn-ghost"
+                onClick={handleToggleWishlist}
+                disabled={wishlistBusy}
+                aria-pressed={wishlisted}
+              >
+                <Icon name="heart" size={16} /> {wishlisted ? 'Saved' : 'Save to Wishlist'}
+              </button>
             </div>
             {reserved && (
               <p className="muted product-reserve-note">

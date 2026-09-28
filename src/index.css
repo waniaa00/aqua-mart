@@ -1714,3 +1714,795 @@ hr.divider {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===========================================================================
+   Interactive Dashboard — shared shell (Sidebar/DashboardHeader), Modal,
+   Drawer, DataTable, DateRangePicker. 003-interactive-dashboard.
+   ======================================================================== */
+
+/* --- shell ------------------------------------------------------------- */
+
+.dashboard-shell {
+  display: flex;
+  min-height: calc(100vh - 1px);
+  flex: 1;
+}
+
+.dashboard-shell-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-shell-content {
+  padding: 2rem 1.5rem 4rem;
+  flex: 1;
+}
+
+/* --- sidebar ------------------------------------------------------------- */
+
+.dashboard-sidebar {
+  width: 15rem;
+  flex-shrink: 0;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  padding: 1.5rem 0.75rem;
+  position: relative;
+  display: none;
+}
+
+.dashboard-sidebar.collapsed {
+  width: 4rem;
+}
+
+.dashboard-sidebar.collapsed .dashboard-sidebar-link-label {
+  display: none;
+}
+
+.dashboard-sidebar-collapse {
+  position: absolute;
+  top: 0.75rem;
+  right: -0.9rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.dashboard-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 1.5rem;
+}
+
+.dashboard-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dashboard-sidebar-link:hover {
+  background: var(--bg-card);
+  color: var(--fg);
+}
+
+.dashboard-sidebar-link.active {
+  background: rgba(111, 227, 255, 0.12);
+  color: var(--accent);
+}
+
+.dashboard-sidebar-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  display: flex;
+}
+
+.dashboard-sidebar-mobile-panel {
+  width: 16rem;
+  max-width: 82vw;
+  height: 100%;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+@media (min-width: 900px) {
+  .dashboard-sidebar {
+    display: block;
+  }
+  .dashboard-sidebar-mobile-overlay {
+    display: none;
+  }
+}
+
+/* --- header ---------------------------------------------------------------- */
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  flex-wrap: wrap;
+}
+
+.dashboard-header-menu-toggle {
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  display: flex;
+}
+
+@media (min-width: 900px) {
+  .dashboard-header-menu-toggle {
+    display: none;
+  }
+}
+
+.dashboard-header-search {
+  position: relative;
+  flex: 1;
+  min-width: 10rem;
+  max-width: 24rem;
+  display: flex;
+  align-items: center;
+}
+
+.dashboard-header-search svg {
+  position: absolute;
+  left: 0.75rem;
+  color: var(--fg-faint);
+  pointer-events: none;
+}
+
+.dashboard-header-search .input {
+  padding-left: 2.2rem;
+}
+
+.dashboard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.dashboard-header-notifications {
+  position: relative;
+}
+
+.dashboard-header-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* --- KPI tiles --------------------------------------------------------- */
+
+.dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+}
+
+.dashboard-kpi-tile {
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.dashboard-kpi-tile:hover {
+  border-color: var(--accent-dim);
+}
+
+.dashboard-kpi-skeleton {
+  display: inline-block;
+  width: 3rem;
+  height: 1.1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  animation: dashboard-skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dashboard-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --- Modal --------------------------------------------------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 100;
+}
+
+.modal {
+  width: 100%;
+  max-width: 30rem;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.25rem 0.5rem;
+}
+
+.modal-head h3 {
+  margin: 0;
+}
+
+.modal-body {
+  padding: 0.5rem 1.25rem 1.25rem;
+}
+
+.modal-footer {
+  padding: 0 1.25rem 1.25rem;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+  .modal {
+    max-width: 100%;
+  }
+}
+
+/* --- Drawer -------------------------------------------------------------- */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 100;
+}
+
+.drawer-panel {
+  width: 100%;
+  max-width: 28rem;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+
+.drawer-head h3 {
+  margin: 0;
+}
+
+.drawer-body {
+  padding: 1.25rem;
+}
+
+@media (max-width: 620px) {
+  .drawer-panel {
+    max-width: 100%;
+  }
+}
+
+/* --- DataTable ------------------------------------------------------------- */
+
+.data-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.data-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.data-table-search {
+  position: relative;
+  flex: 1;
+  min-width: 12rem;
+  max-width: 20rem;
+  display: flex;
+  align-items: center;
+}
+
+.data-table-search svg {
+  position: absolute;
+  left: 0.75rem;
+  color: var(--fg-faint);
+  pointer-events: none;
+}
+
+.data-table-search .input {
+  padding-left: 2.2rem;
+}
+
+.data-table-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.data-table-scroll {
+  overflow-x: auto;
+  display: none;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table th {
+  color: var(--fg-dim);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.data-table-sort-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.data-table-row-clickable {
+  cursor: pointer;
+}
+
+.data-table-row-clickable:hover {
+  background: var(--bg-raised);
+}
+
+.data-table-select-col {
+  width: 2rem;
+}
+
+.data-table-cards {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.data-table-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.data-table-card-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+}
+
+.data-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+@media (min-width: 760px) {
+  .data-table-scroll {
+    display: block;
+  }
+  .data-table-cards {
+    display: none;
+  }
+}
+
+/* --- DateRangePicker --------------------------------------------------- */
+
+.date-range-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+}
+
+.date-range-custom .field {
+  margin-bottom: 0;
+}
+
+/* --- Dashboard clickable list rows (US4) -------------------------------- */
+
+.dashboard-list-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.4rem;
+  margin: -0.4rem;
+}
+
+.dashboard-list-row:hover {
+  background: var(--bg-raised);
+}
+
+/* --- Order status timeline (US4) ---------------------------------------- */
+
+.order-timeline {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.order-timeline li {
+  position: relative;
+  padding: 0 0 1.1rem 1.6rem;
+  color: var(--fg-faint);
+  font-size: 0.88rem;
+}
+
+.order-timeline li::before {
+  content: '';
+  position: absolute;
+  left: 0.2rem;
+  top: 0.15rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.order-timeline li::after {
+  content: '';
+  position: absolute;
+  left: 0.48rem;
+  top: 0.75rem;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.order-timeline li:last-child::after {
+  display: none;
+}
+
+.order-timeline li.reached {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.order-timeline li.reached::before {
+  background: var(--accent);
+}
+
+.order-timeline li.reached::after {
+  background: var(--accent-dim);
+}
+
+/* --- Wishlist (US5) ------------------------------------------------------ */
+
+.wishlist-remove-btn {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(5, 11, 20, 0.75);
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.wishlist-remove-btn:hover {
+  background: var(--bg-card);
+}
+
+.wishlist-unavailable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+/* --- Notifications (US6) ------------------------------------------------- */
+
+.dashboard-header-notifications .btn {
+  position: relative;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #1a0a04;
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.notification-row {
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.notification-row.unread {
+  background: rgba(111, 227, 255, 0.06);
+  border-color: var(--accent-dim);
+}
+
+.notification-row.clickable {
+  cursor: pointer;
+}
+
+.notification-row.clickable:hover {
+  background: var(--bg-raised);
+}
+
+.notification-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+
+/* --- Revenue chart (US7) -------------------------------------------------- */
+
+.revenue-chart-wrap {
+  position: relative;
+  margin-top: 1rem;
+}
+
+.revenue-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.revenue-chart-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.revenue-chart-area {
+  fill: rgba(111, 227, 255, 0.12);
+  stroke: none;
+}
+
+.revenue-chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.revenue-chart-crosshair {
+  stroke: var(--fg-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.revenue-chart-dot {
+  fill: var(--accent);
+}
+
+.revenue-chart-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.revenue-chart-tooltip span {
+  color: var(--fg-dim);
+  font-size: 0.72rem;
+}
+
+.revenue-chart-empty {
+  padding: 3rem 0;
+  text-align: center;
+}
+
+/* --- Status bar chart (US7) ------------------------------------------------ */
+
+.status-bar-chart {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.status-bar-row {
+  display: grid;
+  grid-template-columns: 8rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.status-bar-label {
+  text-transform: capitalize;
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+}
+
+.status-bar-track {
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.status-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.status-bar-fill.success {
+  background: var(--success);
+}
+
+.status-bar-fill.coral {
+  background: var(--coral);
+}
+
+.status-bar-count {
+  text-align: right;
+  font-weight: 600;
+}
+
+/* --- Global search (US9) ------------------------------------------------- */
+
+.global-search-dropdown {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 22rem;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.global-search-group {
+  padding: 0.5rem 0;
+}
+
+.global-search-group + .global-search-group {
+  border-top: 1px solid var(--border);
+}
+
+.global-search-group-label {
+  margin: 0;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+}
+
+.global-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+.global-search-item:hover,
+.global-search-item.active {
+  background: var(--bg-raised);
+}

@@ -44,13 +44,19 @@ class ProductListItem(ORMModel):
     price: Money
     average_rating: float | None = None
     review_count: int = 0
+    # Harmless to expose on the public listing (a plain integer, not a
+    # business secret) — the admin inventory view (US8) is simply the
+    # first consumer that needs it in a *list* response; ProductDetail
+    # already returned it. `low_stock_threshold` deliberately stays off
+    # this response (contracts/products-inventory-extended.md) — it's an
+    # operational detail, not customer-facing.
+    stock_quantity: int = 0
 
 
 class ProductDetail(ProductListItem):
     description: str
     images: list[ProductImageResponse] = []
     fish_details: FishDetailsResponse | None = None
-    stock_quantity: int
 
 
 class CreateProductRequest(ORMModel):

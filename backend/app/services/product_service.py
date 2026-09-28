@@ -63,6 +63,7 @@ async def _to_list_item(db: AsyncSession, product: Product, currency: str | None
         price=await build_money(db, product.base_price, currency),
         average_rating=avg_rating,
         review_count=review_count,
+        stock_quantity=product.inventory.stock_quantity if product.inventory else 0,
     )
 
 
@@ -74,7 +75,6 @@ async def _to_detail(db: AsyncSession, product: Product, currency: str | None) -
         description=product.description,
         images=[ProductImageResponse.model_validate(img) for img in sorted(product.images, key=lambda i: i.display_order)],
         fish_details=FishDetailsResponse.model_validate(product.fish_details) if product.fish_details else None,
-        stock_quantity=product.inventory.stock_quantity if product.inventory else 0,
     )
 
 
@@ -91,6 +91,7 @@ async def list_products(
     freshwater_or_marine: str | None = None,
     difficulty: str | None = None,
     featured: bool | None = None,
+    stock_status: str | None = None,
     sort: str | None = None,
     currency: str | None = None,
     page: int = 1,
@@ -98,6 +99,8 @@ async def list_products(
 ) -> PaginatedResponse[ProductListItem]:
     if sort is not None and sort not in VALID_SORTS:
         raise ValidationAppError(f"Invalid sort: {sort}")
+    if stock_status is not None and stock_status not in ("in_stock", "low_stock", "out_of_stock"):
+        raise ValidationAppError(f"Invalid stock_status: {stock_status}")
     if currency is not None:
         # Validate eagerly rather than only as a side effect of building each
         # item's Money — an empty result page must not silently mask an
@@ -133,12 +136,23 @@ async def list_products(
         conditions.append(FishDetails.difficulty == difficulty)
     if featured is not None:
         conditions.append(Product.is_featured == featured)
+    inventory_joined = False
     if available is not None:
         query = query.join(Inventory, Inventory.product_id == Product.id, isouter=True)
+        inventory_joined = True
         if available:
             conditions.append(and_(Inventory.stock_quantity > 0, Product.status == ProductStatus.active))
         else:
             conditions.append(or_(Inventory.stock_quantity == 0, Inventory.stock_quantity.is_(None)))
+    if stock_status is not None:
+        if not inventory_joined:
+            query = query.join(Inventory, Inventory.product_id == Product.id, isouter=True)
+        if stock_status == "out_of_stock":
+            conditions.append(or_(Inventory.stock_quantity <= 0, Inventory.stock_quantity.is_(None)))
+        elif stock_status == "low_stock":
+            conditions.append(and_(Inventory.stock_quantity > 0, Inventory.stock_quantity <= Inventory.low_stock_threshold))
+        else:  # in_stock
+            conditions.append(Inventory.stock_quantity > Inventory.low_stock_threshold)
     if not available:  # default: only ever show active or out_of_stock, never draft, unless explicitly filtered
         conditions.append(Product.status.in_([ProductStatus.active, ProductStatus.out_of_stock]))
 

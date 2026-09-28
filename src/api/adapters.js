@@ -76,6 +76,9 @@ export function adaptProductListItem(product, categoriesById) {
     deliveryEligible: product.product_type === 'fish',
     averageRating: product.average_rating,
     reviewCount: product.review_count,
+    stockQuantity: product.stock_quantity,
+    sku: product.sku,
+    status: product.status,
   };
 }
 
@@ -84,6 +87,10 @@ export function adaptProductDetail(product, categoriesById) {
     ...adaptProductListItem(product, categoriesById),
     description: product.description,
     specs: specsFor(product),
+    // Raw, unrenamed fish_details (specs above is display-only — capitalized
+    // labels, several fields dropped) — needed to pre-fill the admin edit
+    // form (US14) with the exact field keys the backend expects back.
+    fishDetails: product.fish_details ?? null,
     availability: availabilityFor(product.stock_quantity),
     images: product.images,
   };

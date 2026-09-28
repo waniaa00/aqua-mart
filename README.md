@@ -42,6 +42,21 @@ npm run preview  # serve the production build locally
 | `/gallery` | Filterable gallery of tanks, livestock, and aquascapes |
 | `/about`, `/contact` | Standard content pages |
 | `/experience` | The full interactive jellyfish/ocean scene, full-screen |
+| `/account/login`, `/account/signup` | Customer sign-in / sign-up |
+| `/dashboard` | Customer dashboard — overview, orders, appointments, activity feed |
+| `/dashboard/wishlist` | Customer's saved products |
+| `/admin/login` | Admin sign-in |
+| `/admin` | Admin dashboard overview (KPIs, recent orders/appointments, low-stock alerts) |
+| `/admin/orders` | Order management — filter, bulk status updates, order detail drawer |
+| `/admin/analytics` | Sales/appointments analytics with date-range comparison |
+| `/admin/inventory` | Stock levels, low-stock alerts, restock |
+| `/admin/products` | Product catalog management |
+| `/admin/categories` | Category management |
+| `/admin/appointments` | Date-based appointment browsing, status changes, reschedule |
+| `/admin/customers` | Customer search and order/appointment history |
+| `/admin/reviews` | Per-product review moderation |
+| `/admin/promotions` | Promotion/coupon management |
+| `/admin/services` | Service and slot management |
 
 ## What's inside
 

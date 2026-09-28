@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { useAdminAuth } from '../context/AdminAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import { fetchDashboardSummary } from '../api/admin.js';
 
+// Each tile navigates to its management view (FR-012) — some of those
+// routes don't exist yet as their user-story phases land (Orders/US3 is
+// built; Inventory/Appointments/Customers/Products land in later phases),
+// so this link is forward-declared per plan.md's route map.
 const STAT_TILES = [
-  { key: 'total_sales', label: 'Total Sales', icon: 'cart', money: true },
-  { key: 'total_orders', label: 'Total Orders', icon: 'package' },
-  { key: 'total_customers', label: 'Total Customers', icon: 'user' },
-  { key: 'total_products', label: 'Total Products', icon: 'fish' },
-  { key: 'total_appointments', label: 'Total Appointments', icon: 'calendar' },
+  { key: 'total_sales', label: 'Total Sales', icon: 'cart', money: true, to: '/admin/analytics' },
+  { key: 'total_orders', label: 'Total Orders', icon: 'package', to: '/admin/orders' },
+  { key: 'total_customers', label: 'Total Customers', icon: 'user', to: '/admin/customers' },
+  { key: 'total_products', label: 'Total Products', icon: 'fish', to: '/admin/products' },
+  { key: 'total_appointments', label: 'Total Appointments', icon: 'calendar', to: '/admin/appointments' },
 ];
 
 const STATUS_BADGE = {
@@ -25,8 +29,8 @@ function formatDateTime(iso) {
 }
 
 export default function AdminDashboard() {
-  const { isAuthenticated, token, logout } = useAdminAuth();
-  const location = useLocation();
+  const { token, logout } = useAdminAuth();
+  const navigate = useNavigate();
   const { format } = useCurrency();
   const [summary, setSummary] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
@@ -54,12 +58,8 @@ export default function AdminDashboard() {
     };
   }, [token, logout]);
 
-  if (!isAuthenticated) {
-    return <Navigate to="/admin/login" replace state={{ from: location.pathname }} />;
-  }
-
   return (
-    <section className="section container">
+    <section className="section" style={{ paddingTop: 0 }}>
       <div className="section-head">
         <div>
           <span className="eyebrow">Admin</span>
@@ -76,22 +76,22 @@ export default function AdminDashboard() {
       {status === 'ready' && summary && (
         <>
           <div className="grid grid-4" style={{ marginBottom: '2rem' }}>
-            {STAT_TILES.map(({ key, label, icon, money }) => (
-              <div key={key} className="card card-pad">
+            {STAT_TILES.map(({ key, label, icon, money, to }) => (
+              <button key={key} className="card card-pad dashboard-kpi-tile" onClick={() => navigate(to)} type="button">
                 <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
                   <Icon name={icon} size={18} /> {label}
                 </span>
                 <div style={{ fontSize: '1.6rem', fontWeight: 700 }}>
                   {money ? format(summary[key]) : summary[key]}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
 
           <div className="grid grid-2" style={{ marginBottom: '2rem' }}>
             <div className="card card-pad">
               <h3 style={{ marginTop: 0 }}>Orders by Status</h3>
-              <StatusPills counts={summary.orders_by_status} />
+              <StatusPills counts={summary.orders_by_status} linkTo={(status) => `/admin/orders?status=${status}`} />
             </div>
             <div className="card card-pad">
               <h3 style={{ marginTop: 0 }}>Appointments by Status</h3>
@@ -184,16 +184,29 @@ export default function AdminDashboard() {
   );
 }
 
-function StatusPills({ counts }) {
+function StatusPills({ counts, linkTo }) {
   const entries = Object.entries(counts ?? {});
+  const navigate = useNavigate();
   if (entries.length === 0) return <p className="muted">No data yet.</p>;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-      {entries.map(([status, count]) => (
-        <span key={status} className={`badge ${STATUS_BADGE[status] ?? 'badge'}`}>
-          {status}: {count}
-        </span>
-      ))}
+      {entries.map(([status, count]) =>
+        linkTo ? (
+          <button
+            key={status}
+            type="button"
+            className={`badge ${STATUS_BADGE[status] ?? 'badge'}`}
+            style={{ border: 'none', cursor: 'pointer' }}
+            onClick={() => navigate(linkTo(status))}
+          >
+            {status}: {count}
+          </button>
+        ) : (
+          <span key={status} className={`badge ${STATUS_BADGE[status] ?? 'badge'}`}>
+            {status}: {count}
+          </span>
+        )
+      )}
     </div>
   );
 }

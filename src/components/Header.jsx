@@ -46,7 +46,7 @@ export default function Header() {
         <div className="site-header-actions">
           <CurrencySelector />
 
-          <Link to="/account" className="account-link" onClick={() => setMenuOpen(false)}>
+          <Link to="/dashboard" className="account-link" onClick={() => setMenuOpen(false)}>
             <Icon name="user" size={20} />
             <span className="account-link-label">{isAuthenticated ? user?.name?.split(' ')[0] ?? 'Account' : 'Log In'}</span>
           </Link>

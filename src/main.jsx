@@ -6,6 +6,7 @@ import { CartProvider } from './context/CartContext.jsx';
 import { CurrencyProvider } from './context/CurrencyContext.jsx';
 import { AdminAuthProvider } from './context/AdminAuthContext.jsx';
 import { CustomerAuthProvider } from './context/CustomerAuthContext.jsx';
+import { DashboardUIProvider } from './context/DashboardUIContext.jsx';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')).render(
         <CustomerAuthProvider>
           <CartProvider>
             <AdminAuthProvider>
-              <App />
+              <DashboardUIProvider>
+                <App />
+              </DashboardUIProvider>
             </AdminAuthProvider>
           </CartProvider>
         </CustomerAuthProvider>

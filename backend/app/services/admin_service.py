@@ -1,11 +1,12 @@
 import uuid
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationAppError
 from app.db.models.address import Address
 from app.db.models.order import Order, OrderItem, OrderStatus
 from app.db.models.product import Inventory, Product
@@ -13,6 +14,11 @@ from app.db.models.service import Appointment, AppointmentSlot, Service
 from app.db.models.user import User, UserProfile, UserRole
 from app.schemas.address import AddressResponse
 from app.schemas.admin import (
+    AnalyticsComparison,
+    AnalyticsRange,
+    AnalyticsResponse,
+    AnalyticsSeriesPoint,
+    AnalyticsTotals,
     BestSellingProductResponse,
     CustomerDetailResponse,
     CustomerSummaryResponse,
@@ -22,7 +28,11 @@ from app.schemas.admin import (
 from app.schemas.common import Money, PaginatedResponse
 from app.schemas.service import AppointmentResponse
 from app.services.order_service import order_to_response
+from app.utils.money import round_money
 from app.utils.pagination import clean_page_params, total_pages as compute_total_pages
+
+VALID_ANALYTICS_RANGES = {"today", "7d", "30d", "90d", "12mo", "custom"}
+VALID_COMPARE_VALUES = {"none", "previous"}
 
 REVENUE_STATUSES = [
     OrderStatus.confirmed, OrderStatus.processing, OrderStatus.ready_for_delivery,
@@ -205,4 +215,122 @@ async def get_customer_detail(db: AsyncSession, customer_id: uuid.UUID) -> Custo
         preferred_currency=user.preferred_currency.value, is_active=user.is_active, joined_at=user.created_at,
         total_orders=len(orders), total_spent=Money.same_currency(total_spent, "USD"), total_appointments=len(appointments),
         phone=user.profile.phone if user.profile else None, addresses=addresses, orders=orders, appointments=appointments,
+    )
+
+
+# --- Analytics (contracts/analytics.md) ----------------------------------
+
+
+def _resolve_analytics_range(range_param: str, start: date | None, end: date | None) -> tuple[date, date]:
+    if range_param not in VALID_ANALYTICS_RANGES:
+        raise ValidationAppError(f"Invalid range: {range_param}")
+
+    # Order.placed_at is stored in UTC (Postgres server timezone is GMT —
+    # verified directly). Anchoring "today" on the application host's local
+    # date instead of UTC would silently misalign every predefined range
+    # whenever the host's timezone isn't UTC (e.g. this environment: PKT,
+    # UTC+5) — always resolve "today" from UTC to match the data.
+    today = datetime.now(timezone.utc).date()
+    if range_param == "today":
+        return today, today
+    if range_param == "7d":
+        return today - timedelta(days=6), today
+    if range_param == "30d":
+        return today - timedelta(days=29), today
+    if range_param == "90d":
+        return today - timedelta(days=89), today
+    if range_param == "12mo":
+        return today - timedelta(days=365), today
+
+    # range_param == "custom"
+    if start is None or end is None:
+        raise ValidationAppError("start and end are required for range=custom.")
+    if end < start:
+        raise ValidationAppError("end must not be before start.")
+    if (end - start).days > 366:
+        raise ValidationAppError("Custom range must not exceed 366 days.")
+    return start, end
+
+
+def _granularity_for(range_param: str, range_start: date, range_end: date) -> str:
+    if range_param in ("today", "7d", "30d"):
+        return "day"
+    if range_param == "90d":
+        return "week"
+    if range_param == "12mo" or (range_end - range_start).days > 60:
+        return "month"
+    return "day"
+
+
+async def _aggregate_orders(db: AsyncSession, range_start: date, range_end: date, granularity: str) -> tuple[AnalyticsTotals, list[AnalyticsSeriesPoint]]:
+    bucket = func.date_trunc(granularity, Order.placed_at).label("bucket")
+    query = (
+        select(bucket, func.coalesce(func.sum(Order.total), 0), func.count())
+        .where(Order.status.in_(REVENUE_STATUSES))
+        .where(func.date(Order.placed_at) >= range_start)
+        .where(func.date(Order.placed_at) <= range_end)
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    rows = (await db.execute(query)).all()
+
+    series = [
+        AnalyticsSeriesPoint(date=row_bucket.date(), revenue=str(round_money(Decimal(str(row_revenue)))), order_count=row_count)
+        for row_bucket, row_revenue, row_count in rows
+    ]
+    total_revenue = round_money(sum((Decimal(str(r[1])) for r in rows), Decimal("0")))
+    total_orders = sum(r[2] for r in rows)
+    average = round_money(total_revenue / total_orders) if total_orders else Decimal("0.00")
+
+    totals = AnalyticsTotals(revenue=str(total_revenue), order_count=total_orders, average_order_value=str(average))
+    return totals, series
+
+
+def _pct_diff(current: str, previous: str) -> float:
+    prev_dec = Decimal(previous)
+    if prev_dec == 0:
+        return 0.0
+    return float((Decimal(current) - prev_dec) / prev_dec * 100)
+
+
+def _build_comparison(totals: AnalyticsTotals, previous_totals: AnalyticsTotals) -> AnalyticsComparison:
+    absolute = AnalyticsTotals(
+        revenue=str(round_money(Decimal(totals.revenue) - Decimal(previous_totals.revenue))),
+        order_count=totals.order_count - previous_totals.order_count,
+        average_order_value=str(round_money(Decimal(totals.average_order_value) - Decimal(previous_totals.average_order_value))),
+    )
+    percentage = {
+        "revenue": round(_pct_diff(totals.revenue, previous_totals.revenue), 2),
+        "order_count": round(_pct_diff(str(totals.order_count), str(previous_totals.order_count)), 2),
+        "average_order_value": round(_pct_diff(totals.average_order_value, previous_totals.average_order_value), 2),
+    }
+    return AnalyticsComparison(previous_totals=previous_totals, absolute_diff=absolute, percentage_diff=percentage)
+
+
+async def get_dashboard_analytics(
+    db: AsyncSession, range_param: str, start: date | None, end: date | None, compare: str | None
+) -> AnalyticsResponse:
+    if compare is not None and compare not in VALID_COMPARE_VALUES:
+        raise ValidationAppError(f"Invalid compare: {compare}")
+    compare = compare or "previous"
+
+    range_start, range_end = _resolve_analytics_range(range_param, start, end)
+    granularity = _granularity_for(range_param, range_start, range_end)
+
+    totals, series = await _aggregate_orders(db, range_start, range_end, granularity)
+
+    comparison = None
+    if compare == "previous":
+        span_days = (range_end - range_start).days + 1
+        prev_end = range_start - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span_days - 1)
+        previous_totals, _ = await _aggregate_orders(db, prev_start, prev_end, granularity)
+        comparison = _build_comparison(totals, previous_totals)
+
+    return AnalyticsResponse(
+        range=AnalyticsRange(start=range_start, end=range_end),
+        granularity=granularity,
+        series=series,
+        totals=totals,
+        comparison=comparison,
     )

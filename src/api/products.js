@@ -20,10 +20,10 @@ async function categoriesById() {
   return new Map(categories.map((c) => [c.id, c]));
 }
 
-export async function fetchProducts({ search, category, productType, freshwaterOrMarine, page = 1, limit = 20, currency } = {}) {
+export async function fetchProducts({ search, category, productType, freshwaterOrMarine, stockStatus, page = 1, limit = 20, currency } = {}) {
   const [response, byId] = await Promise.all([
     apiFetch('/products', {
-      params: { search, category, product_type: productType, freshwater_or_marine: freshwaterOrMarine, page, limit, currency },
+      params: { search, category, product_type: productType, freshwater_or_marine: freshwaterOrMarine, stock_status: stockStatus, page, limit, currency },
     }),
     categoriesById(),
   ]);

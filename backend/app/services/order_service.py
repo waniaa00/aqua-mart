@@ -1,7 +1,8 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,11 +11,14 @@ from app.db.models.address import Address
 from app.db.models.cart import Cart
 from app.db.models.order import ORDER_STATUS_TRANSITIONS, Order, OrderItem, OrderStatus
 from app.db.models.product import Product
+from app.db.models.user import User, UserProfile
 from app.schemas.common import PaginatedResponse
-from app.schemas.order import OrderItemResponse, OrderResponse
+from app.schemas.order import AdminOrderListItem, OrderItemResponse, OrderResponse
 from app.services import inventory_service, notification_service, promotion_service
 from app.services.product_service import build_money
 from app.utils.pagination import clean_page_params, total_pages as compute_total_pages
+
+ADMIN_ORDER_SORTS = {"placed_at_asc", "placed_at_desc", "total_asc", "total_desc"}
 
 
 async def order_to_response(order: Order, currency: str) -> OrderResponse:
@@ -160,15 +164,62 @@ async def get_order_for_user(db: AsyncSession, user_id: uuid.UUID, order_id: uui
 # --- Admin --------------------------------------------------------------------
 
 
-async def list_orders_admin(db: AsyncSession, status_filter: str | None, page: int, limit: int) -> PaginatedResponse[OrderResponse]:
+async def list_orders_admin(
+    db: AsyncSession,
+    status_filter: str | None,
+    page: int,
+    limit: int,
+    search: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    customer_id: uuid.UUID | None = None,
+    sort: str | None = None,
+) -> PaginatedResponse[AdminOrderListItem]:
+    if sort is not None and sort not in ADMIN_ORDER_SORTS:
+        raise ValidationAppError(f"Invalid sort: {sort}")
+
     params = clean_page_params(page, limit)
-    query = select(Order).options(selectinload(Order.items))
+    query = (
+        select(Order, User.email, UserProfile.full_name)
+        .join(User, Order.user_id == User.id)
+        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+        .options(selectinload(Order.items))
+    )
     if status_filter:
         query = query.where(Order.status == OrderStatus(status_filter))
+    if search:
+        like = f"%{search}%"
+        query = query.where(cast(Order.id, String).like(f"{search}%") | User.email.ilike(like))
+    if date_from:
+        query = query.where(Order.placed_at >= date_from)
+    if date_to:
+        query = query.where(func.date(Order.placed_at) <= date_to)
+    if customer_id:
+        query = query.where(Order.user_id == customer_id)
+
     total_items = (await db.execute(select(func.count()).select_from(query.with_only_columns(Order.id).subquery()))).scalar_one()
-    result = await db.execute(query.order_by(Order.placed_at.desc()).offset(params.offset).limit(params.limit))
-    orders = list(result.scalars().unique().all())
-    items = [await order_to_response(o, o.currency) for o in orders]
+
+    if sort == "placed_at_asc":
+        query = query.order_by(Order.placed_at.asc())
+    elif sort == "total_asc":
+        query = query.order_by(Order.total.asc())
+    elif sort == "total_desc":
+        query = query.order_by(Order.total.desc())
+    else:
+        query = query.order_by(Order.placed_at.desc())
+
+    result = await db.execute(query.offset(params.offset).limit(params.limit))
+    rows = result.unique().all()
+    items = [
+        AdminOrderListItem(
+            **(await order_to_response(order, order.currency)).model_dump(),
+            user_id=str(order.user_id),
+            customer_email=email,
+            customer_name=full_name or "",
+            shipping_address=order.shipping_address_snapshot,
+        )
+        for order, email, full_name in rows
+    ]
     return PaginatedResponse(items=items, page=params.page, limit=params.limit, total_items=total_items, total_pages=compute_total_pages(total_items, params.limit))
 
 

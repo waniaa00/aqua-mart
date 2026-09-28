@@ -104,3 +104,65 @@ async def test_pagination_and_price_filter(client, db_session):
     asc = await client.get("/api/v1/products", params={"search": "Pag Product", "sort": "price_asc"})
     prices = [float(p["price"]["display_price"]) for p in asc.json()["items"]]
     assert prices == sorted(prices)
+
+
+@pytest.mark.usefixtures("override_get_db")
+async def test_product_list_includes_stock_quantity(client, db_session):
+    token = await _register_admin(client, db_session, "catadmin3@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    product = await _create_product(
+        client, headers, name="Stock Qty Product", slug="stock-qty-product", sku="SKU-STOCKQTY",
+        product_type="equipment", fish_details=None, initial_stock_quantity=7,
+    )
+
+    listing = await client.get("/api/v1/products", params={"search": "Stock Qty Product"})
+    item = next(p for p in listing.json()["items"] if p["slug"] == product["slug"])
+    assert item["stock_quantity"] == 7
+
+
+@pytest.mark.usefixtures("override_get_db")
+async def test_stock_status_filter(client, db_session):
+    token = await _register_admin(client, db_session, "catadmin4@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    in_stock = await _create_product(
+        client, headers, name="Plenty Stock", slug="plenty-stock", sku="SKU-PLENTY",
+        product_type="equipment", fish_details=None, initial_stock_quantity=50,
+    )
+    out_of_stock = await _create_product(
+        client, headers, name="Zero Stock", slug="zero-stock", sku="SKU-ZERO",
+        product_type="equipment", fish_details=None, initial_stock_quantity=0,
+    )
+
+    in_stock_resp = await client.get("/api/v1/products", params={"stock_status": "in_stock", "search": "Stock"})
+    in_stock_slugs = [p["slug"] for p in in_stock_resp.json()["items"]]
+    assert in_stock["slug"] in in_stock_slugs
+    assert out_of_stock["slug"] not in in_stock_slugs
+
+    out_resp = await client.get("/api/v1/products", params={"stock_status": "out_of_stock", "search": "Stock"})
+    out_slugs = [p["slug"] for p in out_resp.json()["items"]]
+    assert out_of_stock["slug"] in out_slugs
+    assert in_stock["slug"] not in out_slugs
+
+
+@pytest.mark.usefixtures("override_get_db")
+async def test_stock_status_low_stock_uses_per_product_threshold(client, db_session):
+    token = await _register_admin(client, db_session, "catadmin5@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    low = await _create_product(
+        client, headers, name="Low Stock Item", slug="low-stock-item", sku="SKU-LOW",
+        product_type="equipment", fish_details=None, initial_stock_quantity=2,
+    )
+    await client.patch(f"/api/v1/products/{low['id']}/inventory", json={"low_stock_threshold": 5}, headers=headers)
+
+    resp = await client.get("/api/v1/products", params={"stock_status": "low_stock", "search": "Low Stock Item"})
+    slugs = [p["slug"] for p in resp.json()["items"]]
+    assert low["slug"] in slugs
+
+
+@pytest.mark.usefixtures("override_get_db")
+async def test_invalid_stock_status_rejected(client):
+    resp = await client.get("/api/v1/products", params={"stock_status": "not-a-status"})
+    assert resp.status_code == 400

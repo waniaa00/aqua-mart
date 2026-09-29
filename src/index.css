@@ -20,6 +20,10 @@
   --coral-dim: #b56548;
   --success: #6fe3a8;
   --danger: #ff8a8a;
+  --gold: #ffd27a;
+  --gold-dim: #b6923f;
+  --violet: #b39dff;
+  --violet-dim: #7a68c9;
 
   --radius-sm: 0.4rem;
   --radius: 0.75rem;
@@ -274,6 +278,16 @@ textarea.input {
 .badge-success {
   background: rgba(111, 227, 168, 0.14);
   color: var(--success);
+}
+
+.badge-gold {
+  background: rgba(255, 210, 122, 0.14);
+  color: var(--gold);
+}
+
+.badge-violet {
+  background: rgba(179, 157, 255, 0.14);
+  color: var(--violet);
 }
 
 .tag {
@@ -1905,14 +1919,80 @@ hr.divider {
   gap: 1rem;
 }
 
+/* Each tile carries one of the color modifiers below via --kpi-color/
+   --kpi-color-bg/--kpi-color-shadow, so the icon badge, top accent bar,
+   value text, and hover glow all pick up the same color from one class
+   rather than five separate inline styles per tile. */
 .dashboard-kpi-tile {
+  position: relative;
+  overflow: hidden;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-kpi-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--kpi-color, var(--accent));
 }
 
 .dashboard-kpi-tile:hover {
-  border-color: var(--accent-dim);
+  border-color: var(--kpi-color, var(--accent-dim));
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px var(--kpi-color-shadow, rgba(111, 227, 255, 0.18));
+}
+
+.kpi-icon-badge {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--kpi-color-bg, rgba(111, 227, 255, 0.14));
+  color: var(--kpi-color, var(--accent));
+}
+
+.kpi-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--kpi-color, var(--fg));
+}
+
+.kpi-cyan {
+  --kpi-color: var(--accent);
+  --kpi-color-bg: rgba(111, 227, 255, 0.14);
+  --kpi-color-shadow: rgba(111, 227, 255, 0.2);
+}
+
+.kpi-coral {
+  --kpi-color: var(--coral);
+  --kpi-color-bg: rgba(255, 157, 122, 0.14);
+  --kpi-color-shadow: rgba(255, 157, 122, 0.2);
+}
+
+.kpi-gold {
+  --kpi-color: var(--gold);
+  --kpi-color-bg: rgba(255, 210, 122, 0.14);
+  --kpi-color-shadow: rgba(255, 210, 122, 0.2);
+}
+
+.kpi-violet {
+  --kpi-color: var(--violet);
+  --kpi-color-bg: rgba(179, 157, 255, 0.14);
+  --kpi-color-shadow: rgba(179, 157, 255, 0.2);
+}
+
+.kpi-success {
+  --kpi-color: var(--success);
+  --kpi-color-bg: rgba(111, 227, 168, 0.14);
+  --kpi-color-shadow: rgba(111, 227, 168, 0.2);
 }
 
 .dashboard-kpi-skeleton {
@@ -1932,6 +2012,106 @@ hr.divider {
   50% {
     opacity: 1;
   }
+}
+
+/* --- Status breakdown (stacked bar + legend) ---------------------------- */
+
+.status-breakdown-bar {
+  display: flex;
+  height: 0.55rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-raised);
+  margin-bottom: 0.9rem;
+}
+
+.status-breakdown-segment {
+  height: 100%;
+  transition: opacity 0.15s ease;
+}
+
+.status-breakdown-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-breakdown-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+button.status-breakdown-item {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+button.status-breakdown-item:hover {
+  border-color: var(--kpi-color, var(--accent));
+}
+
+.status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--kpi-color, var(--accent));
+}
+
+/* --- Low stock / best-seller bars ---------------------------------------- */
+
+.meter-row {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 0.4rem;
+}
+
+.meter-row:last-child {
+  border-bottom: none;
+}
+
+.meter-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.meter-track {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--kpi-color, var(--accent));
+  transition: width 0.3s ease;
+}
+
+.bestseller-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: rgba(255, 210, 122, 0.14);
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  flex-shrink: 0;
 }
 
 /* --- Modal --------------------------------------------------------------- */

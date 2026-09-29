@@ -1,27 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon.jsx';
 import { useAdminAuth } from '../context/AdminAuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import { fetchDashboardSummary } from '../api/admin.js';
 
-// Each tile navigates to its management view (FR-012) — some of those
-// routes don't exist yet as their user-story phases land (Orders/US3 is
-// built; Inventory/Appointments/Customers/Products land in later phases),
-// so this link is forward-declared per plan.md's route map.
+// Each tile navigates to its management view (FR-012). `color` picks one of
+// the .kpi-* modifier classes in index.css — each carries its own icon-badge
+// tint, top accent bar, and hover glow, so every metric reads as a distinct
+// color at a glance rather than five identical cyan cards.
 const STAT_TILES = [
-  { key: 'total_sales', label: 'Total Sales', icon: 'cart', money: true, to: '/admin/analytics' },
-  { key: 'total_orders', label: 'Total Orders', icon: 'package', to: '/admin/orders' },
-  { key: 'total_customers', label: 'Total Customers', icon: 'user', to: '/admin/customers' },
-  { key: 'total_products', label: 'Total Products', icon: 'fish', to: '/admin/products' },
-  { key: 'total_appointments', label: 'Total Appointments', icon: 'calendar', to: '/admin/appointments' },
+  { key: 'total_sales', label: 'Total Sales', icon: 'cart', money: true, to: '/admin/analytics', color: 'cyan' },
+  { key: 'total_orders', label: 'Total Orders', icon: 'package', to: '/admin/orders', color: 'coral' },
+  { key: 'total_customers', label: 'Total Customers', icon: 'user', to: '/admin/customers', color: 'gold' },
+  { key: 'total_products', label: 'Total Products', icon: 'fish', to: '/admin/products', color: 'violet' },
+  { key: 'total_appointments', label: 'Total Appointments', icon: 'calendar', to: '/admin/appointments', color: 'success' },
 ];
+
+// Covers every OrderStatus/AppointmentStatus value the backend defines
+// (backend/app/db/models/order.py, service.py) so nothing silently falls
+// back to a colorless default.
+const STATUS_COLOR = {
+  pending: 'gold',
+  confirmed: 'cyan',
+  processing: 'violet',
+  ready_for_delivery: 'violet',
+  out_for_delivery: 'cyan',
+  completed: 'success',
+  cancelled: 'coral',
+  in_progress: 'violet',
+  no_show: 'coral',
+};
 
 const STATUS_BADGE = {
   completed: 'badge-success',
   confirmed: 'badge-success',
+  processing: 'badge-violet',
+  ready_for_delivery: 'badge-violet',
+  in_progress: 'badge-violet',
+  pending: 'badge-gold',
   cancelled: 'badge-coral',
-  pending: 'badge',
+  no_show: 'badge-coral',
 };
 
 function formatDateTime(iso) {
@@ -58,6 +77,18 @@ export default function AdminDashboard() {
     };
   }, [token, logout]);
 
+  // A genuine derived metric (total revenue / order count) — not a new
+  // backend field, computed from the two the summary already returns.
+  const avgOrderValue = useMemo(() => {
+    if (!summary || !summary.total_orders) return null;
+    return Number(summary.total_sales.display_price) / summary.total_orders;
+  }, [summary]);
+
+  const maxBestSeller = useMemo(() => {
+    if (!summary?.best_selling_products?.length) return 1;
+    return Math.max(...summary.best_selling_products.map((p) => p.total_quantity_sold), 1);
+  }, [summary]);
+
   return (
     <section className="section" style={{ paddingTop: 0 }}>
       <div className="section-head">
@@ -75,64 +106,94 @@ export default function AdminDashboard() {
 
       {status === 'ready' && summary && (
         <>
-          <div className="grid grid-4" style={{ marginBottom: '2rem' }}>
-            {STAT_TILES.map(({ key, label, icon, money, to }) => (
-              <button key={key} className="card card-pad dashboard-kpi-tile" onClick={() => navigate(to)} type="button">
-                <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}>
-                  <Icon name={icon} size={18} /> {label}
+          <div className="dashboard-kpi-grid" style={{ marginBottom: '2rem' }}>
+            {STAT_TILES.map(({ key, label, icon, money, to, color }) => (
+              <button
+                key={key}
+                className={`card card-pad dashboard-kpi-tile kpi-${color}`}
+                onClick={() => navigate(to)}
+                type="button"
+              >
+                <span className="kpi-icon-badge">
+                  <Icon name={icon} size={18} />
                 </span>
-                <div style={{ fontSize: '1.6rem', fontWeight: 700 }}>
-                  {money ? format(summary[key]) : summary[key]}
-                </div>
+                <span className="muted" style={{ fontSize: '0.85rem' }}>
+                  {label}
+                </span>
+                <div className="kpi-value">{money ? format(summary[key]) : summary[key]}</div>
               </button>
             ))}
+
+            {avgOrderValue !== null && (
+              <div className="card card-pad dashboard-kpi-tile kpi-cyan" style={{ cursor: 'default' }}>
+                <span className="kpi-icon-badge">
+                  <Icon name="trending-up" size={18} />
+                </span>
+                <span className="muted" style={{ fontSize: '0.85rem' }}>
+                  Average Order Value
+                </span>
+                <div className="kpi-value">{format(avgOrderValue)}</div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-2" style={{ marginBottom: '2rem' }}>
             <div className="card card-pad">
               <h3 style={{ marginTop: 0 }}>Orders by Status</h3>
-              <StatusPills counts={summary.orders_by_status} linkTo={(status) => `/admin/orders?status=${status}`} />
+              <StatusBreakdown counts={summary.orders_by_status} linkTo={(s) => `/admin/orders?status=${s}`} />
             </div>
             <div className="card card-pad">
               <h3 style={{ marginTop: 0 }}>Appointments by Status</h3>
-              <StatusPills counts={summary.appointments_by_status} />
+              <StatusBreakdown counts={summary.appointments_by_status} />
             </div>
           </div>
 
           {summary.low_stock_products.length > 0 && (
             <div className="card card-pad" style={{ marginBottom: '2rem' }}>
-              <h3 style={{ marginTop: 0 }}>Low Stock</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="spec-table">
-                  <tbody>
-                    {summary.low_stock_products.map((p) => (
-                      <tr key={p.id}>
-                        <th>{p.name}</th>
-                        <td>
-                          {p.stock_quantity} left (threshold {p.low_stock_threshold})
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Icon name="sliders" size={18} style={{ color: 'var(--coral)' }} /> Low Stock
+              </h3>
+              {summary.low_stock_products.map((p) => {
+                const pct = Math.min((p.stock_quantity / Math.max(p.low_stock_threshold, 1)) * 100, 100);
+                const empty = p.stock_quantity === 0;
+                return (
+                  <div key={p.id} className={`meter-row ${empty ? 'kpi-coral' : 'kpi-gold'}`}>
+                    <div className="meter-row-head">
+                      <span>{p.name}</span>
+                      <span className="muted">
+                        {p.stock_quantity} left (threshold {p.low_stock_threshold})
+                      </span>
+                    </div>
+                    <div className="meter-track">
+                      <div className="meter-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
           <div className="card card-pad" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginTop: 0 }}>Best-Selling Products</h3>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="spec-table">
-                <tbody>
-                  {summary.best_selling_products.map((p) => (
-                    <tr key={p.id}>
-                      <th>{p.name}</th>
-                      <td>{p.total_quantity_sold} sold</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Icon name="trending-up" size={18} style={{ color: 'var(--gold)' }} /> Best-Selling Products
+            </h3>
+            {summary.best_selling_products.length === 0 ? (
+              <p className="muted">No sales yet.</p>
+            ) : (
+              summary.best_selling_products.map((p, i) => (
+                <div key={p.id} className="meter-row kpi-gold">
+                  <div className="meter-row-head">
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="bestseller-rank">{i + 1}</span> {p.name}
+                    </span>
+                    <span className="muted">{p.total_quantity_sold} sold</span>
+                  </div>
+                  <div className="meter-track">
+                    <div className="meter-fill" style={{ width: `${(p.total_quantity_sold / maxBestSeller) * 100}%` }} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="grid grid-2">
@@ -184,29 +245,48 @@ export default function AdminDashboard() {
   );
 }
 
-function StatusPills({ counts, linkTo }) {
-  const entries = Object.entries(counts ?? {});
+// Stacked proportional bar + a legend of clickable pills — shows both the
+// exact counts (the pills) and their relative share at a glance (the bar),
+// which a flat list of badges couldn't.
+function StatusBreakdown({ counts, linkTo }) {
   const navigate = useNavigate();
+  const entries = Object.entries(counts ?? {});
   if (entries.length === 0) return <p className="muted">No data yet.</p>;
+
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-      {entries.map(([status, count]) =>
-        linkTo ? (
-          <button
-            key={status}
-            type="button"
-            className={`badge ${STATUS_BADGE[status] ?? 'badge'}`}
-            style={{ border: 'none', cursor: 'pointer' }}
-            onClick={() => navigate(linkTo(status))}
-          >
-            {status}: {count}
-          </button>
-        ) : (
-          <span key={status} className={`badge ${STATUS_BADGE[status] ?? 'badge'}`}>
-            {status}: {count}
-          </span>
-        )
-      )}
+    <div>
+      <div className="status-breakdown-bar">
+        {entries.map(([s, count]) => (
+          <div
+            key={s}
+            className={`status-breakdown-segment kpi-${STATUS_COLOR[s] ?? 'cyan'}`}
+            style={{ width: `${(count / total) * 100}%`, background: 'var(--kpi-color)' }}
+            title={`${s}: ${count}`}
+          />
+        ))}
+      </div>
+      <div className="status-breakdown-legend">
+        {entries.map(([s, count]) => {
+          const colorClass = `kpi-${STATUS_COLOR[s] ?? 'cyan'}`;
+          const content = (
+            <>
+              <span className={`status-dot ${colorClass}`} />
+              {s}: {count}
+            </>
+          );
+          return linkTo ? (
+            <button key={s} type="button" className={`status-breakdown-item ${colorClass}`} onClick={() => navigate(linkTo(s))}>
+              {content}
+            </button>
+          ) : (
+            <span key={s} className={`status-breakdown-item ${colorClass}`}>
+              {content}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
